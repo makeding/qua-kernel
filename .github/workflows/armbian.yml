@@ -1,4 +1,4 @@
-name: Armbian Debian 13 release (manual)
+name: quastation armbian Debian 13 release
 
 on:
   workflow_dispatch:

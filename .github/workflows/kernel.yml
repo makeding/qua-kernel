@@ -1,4 +1,4 @@
-name: Qua Station kernel release
+name: quastation-armbian kernel release
 
 on:
   push:
