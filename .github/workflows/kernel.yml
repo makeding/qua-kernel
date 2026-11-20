@@ -92,6 +92,7 @@ jobs:
 
       - name: Embed initramfs and prepare four release assets
         run: |
+          rm -f build/linux-*.deb build/linux-upstream_*
           KDEB_CHANGELOG_DIST=trixie make deb CC="ccache aarch64-linux-gnu-gcc" HOSTCC="ccache gcc"
           ccache -s
           image_deb=$(find build -maxdepth 1 -type f \

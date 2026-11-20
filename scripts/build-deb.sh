@@ -4,6 +4,11 @@ set -eu
 tree=$(CDPATH= cd -- "$1" && pwd)
 out=$(CDPATH= cd -- "$2" && pwd)
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+pkg_dir=$(dirname "$out")
+rm -f "$pkg_dir"/linux-image-*_arm64.deb \
+	"$pkg_dir"/linux-headers-*_arm64.deb \
+	"$pkg_dir"/linux-libc-dev_*_arm64.deb \
+	"$pkg_dir"/linux-upstream_*
 make -C "$tree" ARCH=arm64 CROSS_COMPILE="${CROSS_COMPILE:-aarch64-linux-gnu-}" O="$out" -j"$(nproc)" bindeb-pkg
 
 release=$(cat "$out/include/config/kernel.release")
