@@ -4,7 +4,7 @@ set -eu
 tree=$(CDPATH= cd -- "$1" && pwd)
 out=$(CDPATH= cd -- "$2" && pwd)
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-make -C "$tree" ARCH=arm64 CROSS_COMPILE="${CROSS_COMPILE:-aarch64-linux-gnu-}" O="$out" -j2 bindeb-pkg
+make -C "$tree" ARCH=arm64 CROSS_COMPILE="${CROSS_COMPILE:-aarch64-linux-gnu-}" O="$out" -j"$(nproc)" bindeb-pkg
 
 release=$(cat "$out/include/config/kernel.release")
 image_root="$out/debian/linux-image-$release"

@@ -18,10 +18,11 @@ fi
   --module GPIO_QUASTATION_ISO_GLUE --module USB_DWC2_QUASTATION_GLUE \
   --enable USB_DWC2_DUAL_ROLE \
   --enable NEW_LEDS --enable LEDS_CLASS --enable LEDS_GPIO
+jobs=$(nproc)
 make -C "$tree" ARCH=arm64 CROSS_COMPILE="${CROSS_COMPILE:-aarch64-linux-gnu-}" O="$out" olddefconfig
-make -C "$tree" ARCH=arm64 CROSS_COMPILE="${CROSS_COMPILE:-aarch64-linux-gnu-}" O="$out" -j2 \
+make -C "$tree" ARCH=arm64 CROSS_COMPILE="${CROSS_COMPILE:-aarch64-linux-gnu-}" O="$out" -j"$jobs" \
   Image realtek/rtd1295-quastation.dtb modules
-"${CROSS_COMPILE:-aarch64-linux-gnu-}gcc" -static -Os \
+${CC:-${CROSS_COMPILE:-aarch64-linux-gnu-}gcc} -static -Os \
   -o "$out/usb-only-exec" "$root/image/maintenance/usb-only-exec.c"
 release=$(cat "$out/include/config/kernel.release")
 cp "$out/arch/arm64/boot/Image" "$out/Image"
@@ -33,5 +34,5 @@ python3 "$root/image/make-rescue-profile.py" "$out/Image-legacy-uboot.gz" \
 for module in gpu gpu/i2c gpu/dma-limit video/ve1 video/ion; do
   mkdir -p "$out/qua-modules/$module"
   make -C "$tree" ARCH=arm64 CROSS_COMPILE="${CROSS_COMPILE:-aarch64-linux-gnu-}" \
-    O="$out" M="$root/modules/$module" MO="$out/qua-modules/$module" modules
+    O="$out" -j"$jobs" M="$root/modules/$module" MO="$out/qua-modules/$module" modules
 done

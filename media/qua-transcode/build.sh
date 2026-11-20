@@ -32,7 +32,7 @@ cd "$src"
     --enable-demuxer='rawvideo,mpegts,nut' --enable-muxer='h264,mpegts,null,nut' \
     --enable-protocol='file,pipe,http,tcp' --enable-parser='h264,mpegvideo,aac' \
     --enable-filter='scale,yadif,fps'
-make -j2
+make -j"$(nproc)"
 ${CC:-cc} -O2 -Wall -Wextra -I"$root/media/vendor-openmax/include" -I"$src" \
     "$root/media/qua-transcode/transcode-direct.c" -o "$out/transcode-direct-gpubob" \
     -Wl,--start-group libavformat/libavformat.a libavcodec/libavcodec.a libavutil/libavutil.a \

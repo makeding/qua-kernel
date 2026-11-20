@@ -28,8 +28,16 @@ jobs:
           key: armbian-rootfs-trixie-arm64-minimal-1ce67c25929fc5b0c4b51d4c051ed7d7e156e8fd-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: armbian-rootfs-trixie-arm64-minimal-1ce67c25929fc5b0c4b51d4c051ed7d7e156e8fd-
       - name: Build official Armbian Trixie arm64 rootfs
-        run: sudo ./compile.sh rootfs RELEASE=trixie ARCH=arm64 BUILD_MINIMAL=yes BUILD_DESKTOP=no
+        run: |
+          set -- cache/rootfs/*.tar.zst
+          if [ -e "$1" ]; then
+            echo "Using restored Armbian rootfs cache:"
+            ls -lh cache/rootfs/*.tar.zst
+          else
+            sudo ./compile.sh rootfs RELEASE=trixie ARCH=arm64 BUILD_MINIMAL=yes BUILD_DESKTOP=no
+          fi
       - name: Save Armbian rootfs cache
+        if: always() && steps.rootfs-cache.outputs.cache-matched-key == ''
         uses: actions/cache/save@v4
         with:
           path: cache/rootfs
@@ -53,9 +61,17 @@ jobs:
       GH_REPO: ${{ github.repository }}
       KERNEL_TAG: ${{ inputs.kernel_tag }}
       CCACHE_DIR: ${{ github.workspace }}/build/ccache
-      CCACHE_MAXSIZE: 0
+      CCACHE_MAXSIZE: "0"
+      CCACHE_COMPILERCHECK: content
+      CCACHE_NOHASHDIR: "true"
+      CCACHE_SLOPPINESS: time_macros
     steps:
       - uses: actions/checkout@v4
+      - name: Install native build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends build-essential ca-certificates ccache curl git gh kmod patch python3 xz-utils zstd zlib1g-dev libegl-dev libgles-dev libdrm-dev
+          echo "/usr/lib/ccache" >> "$GITHUB_PATH"
       - name: Restore media compiler cache
         id: compiler-cache
         uses: actions/cache/restore@v4
@@ -63,10 +79,6 @@ jobs:
           path: build/ccache
           key: media-ccache-trixie-arm64-v1-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: media-ccache-trixie-arm64-v1-
-      - name: Install native build dependencies
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends build-essential ca-certificates ccache curl git gh kmod patch python3 xz-utils zstd zlib1g-dev libegl-dev libgles-dev libdrm-dev
       - uses: actions/download-artifact@v4
         with:
           name: armbian-base-${{ github.run_id }}
@@ -78,7 +90,10 @@ jobs:
           curl -fL https://ffmpeg.org/releases/ffmpeg-4.4.5.tar.xz -o build/ffmpeg-4.4.5.tar.xz
           bash media/vendor-openmax/fetch-libraries.sh
       - name: Build media runtime
-        run: make armbian-media CC="ccache cc" FFMPEG_ARCHIVE="$GITHUB_WORKSPACE/build/ffmpeg-4.4.5.tar.xz"
+        run: |
+          ccache -z
+          make armbian-media CC="ccache cc" FFMPEG_ARCHIVE="$GITHUB_WORKSPACE/build/ffmpeg-4.4.5.tar.xz"
+          ccache -s
       - name: Assemble Qua Armbian rootfs
         run: |
           set -- build/armbian-base/*.tar.zst
