@@ -38,7 +38,7 @@ tar -xzf - -C "$public"
 dpkg-deb -x "$image_deb" "$modules"
 tar -czf "$module_archive" -C "$modules/lib/modules" "$release"
 python3 "$root/image/maintenance/build-rootfs.py" "$public" "$module_archive" \
-	"$public/bin/busybox" "$usb_exec" "$stage" --bootstrap
+	"$public/usr/bin/busybox" "$usb_exec" "$stage" --bootstrap
 size_kib=$(du -sk "$public" "$modules" "$stage" | awk '{total += $1} END {print total}')
 test "$size_kib" -le 1048576
 (cd "$stage" && find . -print0 | LC_ALL=C sort -z | cpio --null -o -H newc --owner=0:0) \

@@ -24,6 +24,7 @@ else
 fi
 cd "$src"
 ./configure --disable-everything --disable-doc --disable-debug --disable-x86asm \
+    --cc="${CC:-cc}" \
     --enable-network --enable-ffmpeg --enable-omx \
     --extra-cflags="-I$root/media/vendor-openmax/include" \
     --enable-encoder='h264_omx,aac,rawvideo' \
@@ -32,13 +33,13 @@ cd "$src"
     --enable-protocol='file,pipe,http,tcp' --enable-parser='h264,mpegvideo,aac' \
     --enable-filter='scale,yadif,fps'
 make -j2
-cc -O2 -Wall -Wextra -I"$root/media/vendor-openmax/include" -I"$src" \
+${CC:-cc} -O2 -Wall -Wextra -I"$root/media/vendor-openmax/include" -I"$src" \
     "$root/media/qua-transcode/transcode-direct.c" -o "$out/transcode-direct-gpubob" \
     -Wl,--start-group libavformat/libavformat.a libavcodec/libavcodec.a libavutil/libavutil.a \
     -Wl,--end-group -L"$root/media/vendor-openmax/lib" -Wl,--allow-shlib-undefined \
     -lOMX_Core -lm -pthread -ldl -latomic -lz
-cc -O2 -Wall -Wextra -fPIC -shared -I/usr/include/libdrm \
+${CC:-cc} -O2 -Wall -Wextra -fPIC -shared -I/usr/include/libdrm \
     "$root/media/qua-transcode/gpu-bob.c" -o "$out/gpu-bob.so" -lEGL -lGLESv2
-cc -O2 -Wall -Wextra -fPIC -shared "$root/media/qua-transcode/rpc-probe.c" -o "$out/rpc-probe.so"
+${CC:-cc} -O2 -Wall -Wextra -fPIC -shared "$root/media/qua-transcode/rpc-probe.c" -o "$out/rpc-probe.so"
 cp ffmpeg "$out/ffmpeg-omx"
 echo "Built in $out; install the runtime using install.sh."

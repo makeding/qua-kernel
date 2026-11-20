@@ -15,8 +15,18 @@ jobs:
     runs-on: ubuntu-24.04
     container: debian:trixie
     timeout-minutes: 120
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/build/ccache
+      CCACHE_MAXSIZE: 2G
+      CCACHE_COMPILERCHECK: content
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: build/ccache
+          key: kernel-ccache-trixie-arm64-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: kernel-ccache-trixie-arm64-v1-
 
       - name: Install build dependencies
         run: |
@@ -24,7 +34,7 @@ jobs:
           dpkg --add-architecture arm64
           apt-get update
           apt-get install --no-install-recommends -y \
-            bc bison build-essential ca-certificates cpio curl debhelper device-tree-compiler \
+            bc bison build-essential ca-certificates ccache cpio curl debhelper device-tree-compiler \
             dpkg-dev dwarves fakeroot file flex gcc-aarch64-linux-gnu git kmod \
             libc6-dev-arm64-cross libdw-dev libelf-dev libncurses-dev libssl-dev libssl-dev:arm64 \
             lsb-release python3 rsync xz-utils zstd
@@ -48,7 +58,7 @@ jobs:
           echo "QUA_LOCALVERSION=-huggy-${release_number}" >> "$GITHUB_ENV"
 
       - name: Build kernel packages
-        run: KDEB_CHANGELOG_DIST=trixie make deb
+        run: KDEB_CHANGELOG_DIST=trixie make deb CC="ccache aarch64-linux-gnu-gcc"
 
       - name: Assemble the ADB maintenance initramfs
         run: |
@@ -69,7 +79,7 @@ jobs:
 
       - name: Embed initramfs and prepare four release assets
         run: |
-          KDEB_CHANGELOG_DIST=trixie make deb
+          KDEB_CHANGELOG_DIST=trixie make deb CC="ccache aarch64-linux-gnu-gcc"
           image_deb=$(find build -maxdepth 1 -type f \
             -name 'linux-image-*_arm64.deb' -print -quit)
           headers_deb=$(find build -maxdepth 1 -type f \
