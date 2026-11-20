@@ -1,0 +1,83 @@
+name: Armbian Debian 13 release (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_tag:
+        description: Existing kernel Release tag to attach Armbian assets to
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  rootfs:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: armbian/build
+          ref: 1ce67c25929fc5b0c4b51d4c051ed7d7e156e8fd
+      - name: Build official Armbian Trixie arm64 rootfs
+        run: sudo ./compile.sh rootfs RELEASE=trixie ARCH=arm64 BUILD_MINIMAL=yes BUILD_DESKTOP=no
+      - uses: actions/upload-artifact@v4
+        with:
+          name: armbian-base-${{ github.run_id }}
+          path: cache/rootfs/*.tar.zst
+          if-no-files-found: error
+          retention-days: 7
+
+  assemble:
+    needs: rootfs
+    runs-on: ubuntu-24.04-arm
+    container: debian:trixie
+    timeout-minutes: 120
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      KERNEL_TAG: ${{ inputs.kernel_tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install native build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends build-essential ca-certificates curl git gh kmod patch python3 xz-utils zstd zlib1g-dev libegl-dev libgles-dev libdrm-dev
+      - uses: actions/download-artifact@v4
+        with:
+          name: armbian-base-${{ github.run_id }}
+          path: build/armbian-base
+      - name: Download matching kernel and media inputs
+        run: |
+          mkdir -p build/kernel build/release
+          gh release download "$KERNEL_TAG" --pattern 'linux-image-*_arm64.deb' --dir build/kernel
+          curl -fL https://ffmpeg.org/releases/ffmpeg-4.4.5.tar.xz -o build/ffmpeg-4.4.5.tar.xz
+          bash media/vendor-openmax/fetch-libraries.sh
+      - name: Build media runtime
+        run: make armbian-media FFMPEG_ARCHIVE="$GITHUB_WORKSPACE/build/ffmpeg-4.4.5.tar.xz"
+      - name: Assemble Qua Armbian rootfs
+        run: |
+          set -- build/armbian-base/*.tar.zst
+          test "$#" -eq 1
+          base=$1
+          set -- build/kernel/*.deb
+          test "$#" -eq 1
+          make armbian-rootfs ARMBIAN_ROOTFS="$base" KERNEL_DEB="$1"
+      - name: Prepare release assets
+        run: |
+          cp build/armbian/QuaStation-Armbian-trixie-arm64-rootfs.tar.zst build/release/
+          cp image/INSTALL.md build/release/INSTALL.ja.md
+          tar -czf build/release/QuaStation-install-tools.tar.gz image
+          cd build/release
+          sha256sum *.tar.zst *.tar.gz INSTALL.ja.md > SHA256SUMS-armbian
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qua-armbian-${{ github.run_id }}
+          path: build/release/*
+          if-no-files-found: error
+          retention-days: 14
+      - name: Attach Armbian assets to kernel Release
+        run: gh release upload "$KERNEL_TAG" build/release/*

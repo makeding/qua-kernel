@@ -1,9 +1,10 @@
 #!/bin/bash
 # Run as root on the Linux release builder, using the official Armbian cache.
 set -Eeuo pipefail
-archive=$(realpath "${1:?usage: build-armbian-rootfs.sh ARMBIAN.tar.zst KERNEL.deb OUTPUT}")
+archive=$(realpath "${1:?usage: build-armbian-rootfs.sh ARMBIAN.tar.zst KERNEL.deb OUTPUT MEDIA_BUILD}")
 deb=$(realpath "${2:?}")
 out=$(realpath -m "${3:?}")
+media=$(realpath "${4:?}")
 project=$(cd "$(dirname "$0")/.." && pwd)
 root="$out/rootfs"
 test ! -e "$root"
@@ -14,12 +15,34 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 tar --xattrs --acls --numeric-owner -xpf "$archive" -C "$root"
 grep -qx 'VERSION_ID="13"' "$root/etc/os-release"
-test -f "$root/etc/armbian-release"
-# Extract the Debian package without running its hardware-facing postinst on CI.
-dpkg-deb -x "$deb" "$root"
+# Install distribution-owned runtime dependencies inside the native arm64 root.
+rm -f "$root/etc/resolv.conf"
+install -m 644 /etc/resolv.conf "$root/etc/resolv.conf"
+printf '#!/bin/sh\nexit 101\n' > "$root/usr/sbin/policy-rc.d"
+chmod 755 "$root/usr/sbin/policy-rc.d"
+chroot "$root" apt-get update
+chroot "$root" apt-get install -y --no-install-recommends \
+    ca-certificates curl ffmpeg libegl1 libgles2 libgl1-mesa-dri libdrm2 \
+    libatomic1 zlib1g python3 btrfs-progs openssh-server wpasupplicant systemd-resolved
+# Resolve the actual package dependency expression, including alternatives and versions.
+depends=$(dpkg-deb -f "$deb" Depends)
+chroot "$root" apt-get satisfy -y --no-install-recommends "$depends"
+rm "$root/usr/sbin/policy-rc.d"
+# Register and unpack the kernel; configure its hardware-facing postinst on Qua.
+install -d "$root/var/cache/apt/archives"
+install -m 644 "$deb" "$root/var/cache/apt/archives/$(basename "$deb")"
+chroot "$root" dpkg --unpack "/var/cache/apt/archives/$(basename "$deb")"
 release=$(dpkg-deb -f "$deb" Package)
 release=${release#linux-image-}
 depmod -b "$root" "$release"
+install -d "$root/opt/qua-video/openmax/lib" "$root/etc/modules-load.d"
+cp -a "$project/media/vendor-openmax/lib/." "$root/opt/qua-video/openmax/lib/"
+for name in transcode-direct-gpubob gpu-bob.so rpc-probe.so ffmpeg-omx; do
+    install -m 755 "$media/$name" "$root/opt/qua-video/openmax/"
+done
+install -m 755 "$project/media/qua-transcode/transcode-mirakurun-gpu.sh" "$root/opt/qua-video/openmax/"
+install -m 755 "$project/image/install-huastation.sh" "$root/usr/local/sbin/install-huastation"
+printf 'qua-ion\n' > "$root/etc/modules-load.d/quastation-ve.conf"
 install -d "$root/lib/firmware/rtlwifi" "$root/etc/systemd/network" \
   "$root/etc/ssh/sshd_config.d" "$root/etc/wpa_supplicant" \
   "$root/etc/systemd/system/multi-user.target.wants"
@@ -34,14 +57,15 @@ for service in systemd-networkd ssh wpa_supplicant@wlan0; do
   ln -sfn "/usr/lib/systemd/system/$unit.service" "$root/etc/systemd/system/multi-user.target.wants/$service.service"
 done
 install -d "$root/usr/lib/armbian" "$root/etc/systemd/system/sshd-keygen.service.d"
-cp "$root/etc/armbian-release" "$root/usr/lib/armbian/armbian-release.upstream"
-sed -i -e 's/^BOARD=.*/BOARD=quastation/' \
-  -e 's/^BOARD_NAME=.*/BOARD_NAME="KDDI Qua Station"/' \
-  -e 's/^BOARDFAMILY=.*/BOARDFAMILY=rtd1295/' \
-  -e 's/^LINUXFAMILY=.*/LINUXFAMILY=quastation-mainline/' "$root/etc/armbian-release"
+# The official board-independent rootfs cache has no board BSP identity.
+printf '%s\n' 'BOARD=quastation' 'BOARD_NAME="KDDI Qua Station"' \
+  'BOARDFAMILY=rtd1295' 'LINUXFAMILY=quastation-mainline' \
+  'ARCH=arm64' 'DISTRIBUTION_CODENAME=trixie' > "$root/etc/armbian-release"
 printf '[Unit]\nConditionFirstBoot=\n' > "$root/etc/systemd/system/sshd-keygen.service.d/quastation.conf"
 rm -f "$root"/etc/ssh/ssh_host_* "$root/root/.ssh/authorized_keys"
 : > "$root/etc/machine-id"
 rm -f "$root/etc/systemd/system/basic.target.wants/armbian-resize-filesystem.service"
+rm -f "$root/etc/resolv.conf"
+ln -s /run/systemd/resolve/stub-resolv.conf "$root/etc/resolv.conf"
 tar --xattrs --acls --numeric-owner -C "$root" -cpf - . \
   | zstd -T0 -o "$out/QuaStation-Armbian-trixie-arm64-rootfs.tar.zst"
