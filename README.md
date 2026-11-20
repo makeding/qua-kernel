@@ -1,172 +1,110 @@
-# Qua Station / Armbian Debian 13 インストール手順
+# quastation-armbian
 
-## ストレージ構成と起動方式
+## 1. プロジェクト概要
 
-配布対象は arm64 のルートファイルシステムです。ディスク全体のイメージではありません。
-純正 Realtek ブートチェーンと個体固有の factory 環境を維持します。
-汎用 Armbian イメージ、GRUB、`armbian-install` で起動構成を置き換えないでください。
+KDDI Qua Station（Realtek RTD1295 / ARM64）向けの Linux 7.3.4 メインラインベースカーネル、デバイスツリー、アウトオブツリーモジュール、および Armbian（Debian 13 / Trixie）rootfs・USB ADB 導入ツールを提供するリポジトリです。
 
-以下はローカル `qua/porting/armbian/install-device-storage.sh` と
-`INSTALL-STATE.md` に記録された実機導入時の構成です。
-セクターサイズは 512 バイト、対象 eMMC は 15,269,888 セクターです。
-`quastation-layout.mbr` の SHA256 は、その導入記録と一致します。
+純正 Realtek ブートチェーンおよび個体固有の factory 環境を保持したまま、eMMC のルートパーティションに Armbian を導入・運用する構成をとります。汎用 Armbian イメージ、GRUB、`armbian-install` によるブート構成の置き換えは行いません。
+
+主な構成要素:
+
+- `kernel/`・`patches/`・`dts/rtd1295-quastation.dts`: Linux 7.3.4 向けパッチ群、Qua Station 固有ドライバー、ボード DTS
+- `modules/`: Mali-T820 GPU 初期化、VE1 ハードウェア動画エンジン、ION メモリアロケーター
+- `image/`: RAM メンテナンス initramfs（`QuaMaintenance` USB ADB）、個体別バンドル生成、USB 経由インストーラー、ブートスロットライター
+- `media/qua-transcode/`: MPEG-2 → H.264 ハードウェアトランスコードパイプラインおよび FFmpeg 4.4.5 NV12 パッチ
+
+## 2. 適応状況
+
+| 領域 | 状態 | 概要・対象コンポーネント |
+| --- | --- | --- |
+| CPU / クロック / 割り込み / サーマル | 対応済み | `clk-quastation*`、`irq-quastation`、`rtd129x-quastation-thermal` |
+| GPIO / LED | 対応済み | `qua-iso-gpio`、`gpio-leds` |
+| eMMC / SD / SATA | 対応済み | `rtkemmc-quastation`、`rtk-sdmmc`、`ahci-quastation` |
+| USB ホスト / USB ADB ガジェット | 対応済み | DWC3、`kddi,quastation-ehci`、DWC2 ペリフェラル + `qua-usb-adbd` |
+| PCIe / Wi-Fi | 対応済み | `pcie-rtd129x-slot1` / `slot2`、Realtek 無線ファームウェア（`firmware/rtlwifi/`） |
+| GPU / 動画エンジン / トランスコード | 対応済み（制約あり） | `qua-gpu`（Mali-T820 / Panfrost）、`video/ve1`、`video/ion`、`media/qua-transcode/` |
+| RAM メンテナンス / USB 導入経路 | 検証中 | `QuaMaintenance` initramfs と `install-over-usb.sh` は工場出荷実機での E2E 受け入れ検証を継続中（詳細は [image/README.md](image/README.md)） |
+
+- `media/vendor-openmax/lib/` の Realtek OpenMAX ランタイムは再配布条件が不明なためリポジトリには同梱せず、ビルド時に外部取得またはローカル配置します。
+- 動画パイプラインおよび `ffmpeg-omx` の既知制約（1 フィールド補間による 29.97fps 出力等）は [media/qua-transcode/README.md](media/qua-transcode/README.md) を参照してください。
+
+## 3. 推奨インストール方法とパーティション構成
+
+### eMMC パーティション・ブートスロット構成
+
+対象 eMMC（15,269,888 セクター、512 バイト/セクター）は `image/quastation-layout.mbr` に従い構成されます。先頭の純正ブートコードと factory 環境は保持し、ディスク全体の `dd` イメージ書き換えは行いません。
 
 | 領域 | 開始 LBA | セクター数 | 用途 |
 | --- | ---: | ---: | --- |
 | ファームウェア領域 | 0 | 196608 | 純正ブートコードと factory データを保持 |
-| p1 | 196608 | 32768 | ファイルシステムを作らない起動用 raw 領域 |
-| p2 | 229376 | 13443072 | Btrfs `QUA_ROOT`、ルートサブボリューム `@` |
-| p3 | — | — | エントリーを削除し、旧領域を p2 に統合 |
-| p4 | 13672448 | 1269760 | 既存の拡張パーティションと論理領域を保持 |
+| `p1` | 196608 | 32768 | ファイルシステムを作らない起動用 raw 領域 |
+| `p2` | 229376 | 13443072 | Btrfs `QUA_ROOT`（ルートサブボリューム `@`、`compress=zstd:3`） |
+| `p3` | — | — | エントリーを削除し、旧領域を `p2` に統合 |
+| `p4` | 13672448 | 1269760 | 既存の拡張パーティションと論理領域を保持 |
 
-インストーラーは工場出荷時のパーティション 1〜3 を再構成します。
-カーネルは LBA 196608 から 12288 セクター、DTB は 212736 から 31 セクター、
-メンテナンス initrd は 212992 から 15534 セクターを使用します。
-個体別レスキュー引き継ぎ領域は LBA 210944〜211455 です。
-書き込みには本リポジトリのスロットライターを使用します。
-`Image-legacy-uboot.gz` は Qua の旧 U-Boot 向けにヘッダーを調整しています
-（`text_offset=0x20000000`）。汎用 ARM64 Image をそのまま書き込まないでください。
+raw 起動スロットには本リポジトリのスロットライター（`image/write-boot-slots.py`）で `Image-legacy-uboot.gz`（`text_offset=0x20000000` 調整済み）を書き込みます。
 
-## 1. 最初に Qua rescue U-Boot を導入する
+| スロット | 開始 LBA | セクター数 |
+| --- | ---: | ---: |
+| カーネル | 196608 | 12288 |
+| レスキュー引き継ぎ | 210944 | 512 |
+| DTB | 212736 | 31 |
+| メンテナンス initrd | 212992 | 15534 |
 
-[qua-rescue-uboot](https://github.com/makeding/qua-rescue-uboot/) の
-[setup.md](https://github.com/makeding/qua-rescue-uboot/blob/qua-rescue/setup.md)
-に従います。**パーティション変更や Armbian 導入より先に、対象機の既存 Linux 上で実行します。**
+### 推奨導入手順
 
-```sh
-sudo python3 install-usb-chain.py . stage
-sudo python3 install-usb-chain.py . arm
-```
+1. **Qua rescue U-Boot を導入する（対象機の既存 Linux 上で実行）**
 
-v1 インストーラーは `arm` 時に純正 U-Boot 環境の `bootdelay` を `2` に設定し、
-両方の factory 環境バンクへ書き込んで読み戻します。
-別途 `setenv` / `saveenv` を実行する必要はありません。
-実行結果の `original_delay_seconds: 2` は純正側、
-`new_delay_seconds: 3` は RAM レスキュー側の操作受付時間です。
-電源投入から Linux 起動までの総時間ではありません。
+   [qua-rescue-uboot](https://github.com/makeding/qua-rescue-uboot/) の [setup.md](https://github.com/makeding/qua-rescue-uboot/blob/qua-rescue/setup.md) に従いステージングと有効化を行います。
 
-バックアップを保管して再起動します。独立した USB 2.0 Type-A ポートに接続し、
-CDC ACM コンソールで `version` と `boot` を確認します。
-macOS の例は `/dev/cu.usbmodemQuaRescue1`、115200 baud です。
-これは U-Boot のシリアルコンソールであり、**USB ADB ではありません**。
-純正 ARM32 U-Boot → RAM レスキュー U-Boot → 純正 ARM64 U-Boot → Linux の順で起動し、
-保存済みの純正ブートローダーバイナリは置き換えません。
+   ```sh
+   sudo python3 install-usb-chain.py . stage
+   sudo python3 install-usb-chain.py . arm
+   ```
 
-## 2. Qua 用 Armbian を導入する
+   独立した USB 2.0 Type-A ポートへ接続し、CDC ACM シリアルコンソール（例: macOS `/dev/cu.usbmodemQuaRescue1`、115200 baud）から RAM メンテナンス環境を起動します。起動後はシリアルを閉じ、ホストの `adb devices -l` で `QuaMaintenance` が `device` として認識されることを確認します。
 
-### USB 接続の切り替わり
-
-同じ USB ケーブルでも、起動段階によって PC 側の接続方法が変わります。
-
-| 起動段階 | PC 側の表示 | 用途 |
-| --- | --- | --- |
-| rescue U-Boot | CDC ACM シリアル | 起動操作・コンソール |
-| RAM メンテナンス Linux | ADB `QuaMaintenance` | インストールファイル転送 |
-
-RAM メンテナンス起動には、対応するカーネル・DTB・initramfs をロードし、
-その initramfs を使う起動設定で Linux へ引き継ぎます。
-通常起動の設定のまま `boot` しても、メンテナンス起動への切り替えにはなりません。
-Linux が起動したらシリアル接続を閉じ、ADB の `QuaMaintenance` を確認します。
-
-ホストの Android platform-tools を使用します。
-
-```sh
-adb devices -l
-adb -s QuaMaintenance get-state
-```
-
-`QuaMaintenance` が `device` として表示された後、下記のバックアップと
-個体別バンドルの準備を済ませ、ホストから rootfs を転送・インストールします。
-
-```sh
-bash image/install-over-usb.sh RELEASE_DIR TARGET_BUNDLE \
-  QuaStation-Armbian-trixie-arm64-rootfs.tar.zst authorized_keys wpa.conf \
-  QuaStation-maintenance-stage2.tar.gz
-```
-
-Armbian rootfs 全体を `/run` に置く必要はありません。下記の
-`install-over-usb.sh` は stage2・個体別バンドル・認証情報を先に転送し、
-圧縮 rootfs は ADB の標準入力から eMMC のマウント先へ直接ストリーム展開します。
-USB シリアルへ rootfs を送信したり、ADB を TCP に切り替えたりする方式ではありません。
-
-### バックアップとインストール
-
-1. 対応する Qua RAM メンテナンス環境を起動します。eMMC の各パーティションは
-   アンマウント状態とし、USB ADB に `QuaMaintenance` が表示されることを確認します。
-2. この個体の eMMC 全体と CID をホストへ保存します。
+2. **eMMC バックアップと個体別バンドルの生成**
 
    ```sh
    adb -s QuaMaintenance shell 'cat /sys/class/block/mmcblk0/device/cid' > cid.txt
    set -o pipefail
    adb -s QuaMaintenance exec-out 'dd if=/dev/mmcblk0 bs=1048576 2>/dev/null' | gzip -1 > factory-emmc.img.gz
+   python3 RELEASE_DIR/prepare-target-bundle.py factory-emmc.img.gz "$(cat cid.txt)" RELEASE_DIR TARGET_BUNDLE
    ```
 
-3. `prepare-target-bundle.py` でバックアップから個体別バンドルを作成します。
-   個体の factory 環境と対応するレスキュープロファイル・ローダーを組み合わせます。
-   バンドルを公開したり、別個体の環境や MAC アドレスを流用したりしないでください。
-4. ホストから、バンドル、rootfs、SSH 公開鍵、Wi-Fi 設定、メンテナンス stage2 を渡します。
+   生成された `TARGET_BUNDLE` には個体固有の factory 環境・MAC アドレスが含まれるため公開・流用しないでください。
+
+3. **Armbian rootfs の転送・インストール**
 
    ```sh
-   bash install-over-usb.sh RELEASE_DIR TARGET_BUNDLE \
+   bash image/install-over-usb.sh RELEASE_DIR TARGET_BUNDLE \
      QuaStation-Armbian-trixie-arm64-rootfs.tar.zst authorized_keys wpa.conf \
      QuaStation-maintenance-stage2.tar.gz
    ```
 
-   `install-target.sh` が以下を順に実行します。
+   完了後に再起動し、`uname -r`、`findmnt /`（`/dev/mmcblk0p2[/@]`）、`systemctl status wpa_supplicant@wlan0 ssh`、および USB ADB を確認します。
 
-   - `quastation-layout.mbr` を適用し、パーティションテーブルを再読み込み。
-   - **p2 のみ**を Btrfs でフォーマットし、サブボリューム `@` を作成。
-   - `subvol=@,compress=zstd:3` でマウントし、rootfs をストリーム展開。
-   - 指定した認証情報と個体固有の Wi-Fi MAC 設定を配置。
-   - 起動スロットを書き込み、読み戻して照合。
-   - 個体別レスキュー引き継ぎを有効化。
+4. **（任意）HuaStation の導入と導入後のカーネル更新**
 
-5. 成功表示後に再起動し、`uname -r`、`findmnt /`、
-   `systemctl status wpa_supplicant@wlan0 ssh` と USB ADB を確認します。
-   ルートは `/dev/mmcblk0p2[/@]`、カーネルとモジュールは同一リリースである必要があります。
+   Armbian 起動後、対象機上で以下を実行すると `huastation` パッケージ（SHA256 検証付き）が導入されます。
 
-初回導入にはカーネルと rootfs のほか、対応する `rescue-package/manifest.json`、
-`u-boot-ram-console.bin`、`chain-copy-arm32.bin`、公開用 `profile.json`、
-メンテナンス stage2 が必要です。これらは個体別バンドル生成の入力です。
-別ボード用 U-Boot で代用しないでください。
-ローカルの既存導入には実機記録があります。公開用 USB インストール経路の受け入れ条件は、
-工場出荷状態の実機で導入から起動まで通して動作することです。
+   ```sh
+   sudo bash image/install-huastation.sh
+   ```
 
-## 3. HuaStation を導入する
+   導入後のカーネル更新は Qua 上で `sudo apt install ./linux-image-*_arm64.deb` を実行します。パッケージの `postinst` がスロットライターを呼び出し、再起動後に新しいカーネルへ切り替わります。
 
-Armbian 起動後、対象機上で実行します。ダウンロードには `curl` と
-`ca-certificates`、インストールには管理者権限と APT 接続が必要です。
+## 4. 関連リソース
 
-```sh
-sudo bash image/install-huastation.sh
-```
+- [qua-rescue-uboot](https://github.com/makeding/qua-rescue-uboot/)（[setup.md](https://github.com/makeding/qua-rescue-uboot/blob/qua-rescue/setup.md)）: RAM レスキュー U-Boot と USB ブートチェーン
+- [huastation_0.1.0_arm64.deb](https://git.huggy.moe/qua/huastation/releases/download/0.1.0/huastation_0.1.0_arm64.deb): Qua Station 管理パッケージ
+- [image/README.md](image/README.md): RAM メンテナンスシステムおよび USB インストーラーの詳細仕様
+- [media/qua-transcode/README.md](media/qua-transcode/README.md): ハードウェアトランスコードと FFmpeg パッチのビルド・検証手順
+- [firmware/README.md](firmware/README.md) / [modules/README.md](modules/README.md): ファームウェアおよびカーネル外モジュール情報
 
-スクリプトは以下の固定バージョンを取得し、SHA256 を照合してから
-APT で依存パッケージとともにインストールします。
+## 5. ライセンス
 
-- URL: https://git.huggy.moe/qua/huastation/releases/download/0.1.0/huastation_0.1.0_arm64.deb
-- SHA256: `bd10cc1f6a7514e5dfdedb53cb0a6f4a3426dc6a45b8e8271683c3b8e53c7072`
+本プロジェクトは複数のライセンスを持つコンポーネント（Linux カーネル・GPL-2.0 系ドライバー、LGPL-2.1+ メディアツール、Khronos MIT ヘッダー、Realtek ファームウェア・vendor バイナリ、Armbian / Debian パッケージ等）を組み合わせた混合ライセンス構成です。
 
-USB ADB の切り替えはパッケージの postinst が担当します。
-実機上で実行するため、ビルドホストの chroot でサービスを起動する必要はありません。
-
-## Media と更新
-
-media は `/opt/qua-video/openmax` に配置します。
-MPEG-2 / OpenMAX / GPU の直接処理パイプライン、`gpu-bob.so`、`rpc-probe.so`、
-パッチ適用済み `ffmpeg-omx`、ラッパー、対応する Realtek ランタイムが対象です。
-`h264_metadata` フィルターにはディストリビューションの FFmpeg を使用します。
-入力形式とインターレース解除の制約は `media/qua-transcode/README.md` を参照してください。
-動作確認には実際の MPEG-2 入力から H.264 / AAC 出力を生成します。
-
-導入後のカーネル更新は Qua 上で `apt install ./linux-image-…_arm64.deb` を使用します。
-postinst が既存のスロットライターを呼び出します。再起動後の実行中カーネルで切り替えを確認します。
-
-## LICENSE
-
-本プロジェクトは混合ライセンスです。カーネル、media、vendor ライブラリ、
-ファームウェア、配布パッケージにはそれぞれのライセンスが適用されます。
-詳細は [LICENSE](LICENSE) と各ファイルの著作権・ライセンス表示を参照してください。
-
-
-Made with ❤️
+詳細は [LICENSE](LICENSE) および各ファイル内の SPDX 識別子・著作権表示を参照してください。
