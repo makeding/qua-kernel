@@ -23,6 +23,10 @@ test ! -e "$g"
 systemctl stop serial-getty@ttyGS0.service || true
 if grep -q '^g_serial ' /proc/modules; then modprobe -r g_serial; fi
 modprobe usb_f_fs
+modprobe qua-rtk-hsotg
+if [[ -w /sys/class/usb_role/qua-usb2-role-switch/role ]]; then
+    printf 'device\n' > /sys/class/usb_role/qua-usb2-role-switch/role || true
+fi
 mkdir "$g"
 owned=1
 mkdir -p "$g/strings/0x409" "$g/configs/c.1/strings/0x409" "$g/functions/ffs.adb" "$ffs"

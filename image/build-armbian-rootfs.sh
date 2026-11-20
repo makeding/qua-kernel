@@ -57,15 +57,21 @@ for name in transcode-direct-gpubob gpu-bob.so rpc-probe.so ffmpeg-omx; do
 done
 install -m 755 "$project/media/qua-transcode/transcode-mirakurun-gpu.sh" "$root/opt/qua-video/openmax/"
 printf 'qua-ion\n' > "$root/etc/modules-load.d/quastation-ve.conf"
+printf 'qua-rtk-hsotg\n' > "$root/etc/modules-load.d/quastation-usb.conf"
 install -d "$root/lib/firmware/rtlwifi" "$root/etc/systemd/network" \
   "$root/etc/ssh/sshd_config.d" "$root/etc/wpa_supplicant" \
   "$root/etc/systemd/system/multi-user.target.wants"
 install -m 644 "$project"/firmware/rtlwifi/*.bin "$root/lib/firmware/rtlwifi/"
-printf '%s\n' 'LABEL=QUA_ROOT / btrfs subvol=@,compress=zstd:3,noatime,nodiscard 0 1' > "$root/etc/fstab"
+printf '%s\n' \
+  'LABEL=QUA_ROOT / btrfs subvol=@,compress=zstd:3,noatime,nodiscard 0 1' \
+  'tmpfs /var/log tmpfs defaults,noatime,nosuid,nodev,mode=0755,size=64M 0 0' \
+  'tmpfs /tmp tmpfs defaults,nosuid,nodev,size=256M 0 0' \
+  > "$root/etc/fstab"
 printf 'qua\n' > "$root/etc/hostname"
 printf '%s\n' 'PasswordAuthentication no' 'KbdInteractiveAuthentication no' \
   'PermitRootLogin prohibit-password' > "$root/etc/ssh/sshd_config.d/10-quastation.conf"
 printf '[Match]\nName=wlan0\n[Link]\nActivationPolicy=up\nRequiredForOnline=no\n[Network]\nDHCP=yes\n' > "$root/etc/systemd/network/20-wlan0.network"
+rm -f "$root/etc/systemd/system/multi-user.target.wants/adbd.service"
 for service in systemd-networkd ssh wpa_supplicant@wlan0 huastation; do
   unit=${service/@wlan0/@}
   ln -sfn "/usr/lib/systemd/system/$unit.service" "$root/etc/systemd/system/multi-user.target.wants/$service.service"

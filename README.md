@@ -53,9 +53,9 @@ raw 起動スロットには本リポジトリのスロットライター（`ima
 
 ### 推奨導入手順（ベストプラクティス）
 
-1. **Qua rescue U-Boot（v4 以降）を導入する**
+1. **Qua rescue U-Boot（v6 以降）を導入する**
 
-   [qua-rescue-uboot](https://github.com/makeding/qua-rescue-uboot/releases) の [setup.md](https://github.com/makeding/qua-rescue-uboot/blob/qua-rescue/setup.md) に従いステージングと有効化を行います（v4 以降は CRC チェックがなく、`usbrecv` による高速転送に対応しています）。
+   [qua-rescue-uboot](https://github.com/makeding/qua-rescue-uboot/releases) の [setup.md](https://github.com/makeding/qua-rescue-uboot/blob/qua-rescue/setup.md) に従いステージングと有効化を行います（`usbrecv` による高速転送と `.uImage` initrd 自動引き継ぎに対応しています）。
 
    ```sh
    sudo python3 install-usb-chain.py . stage
@@ -64,14 +64,10 @@ raw 起動スロットには本リポジトリのスロットライター（`ima
 
 2. **RAM メンテナンス環境（`QuaMaintenance`）を起動する**
 
-   再起動時に USB 2.0 ポートへ接続した状態で CDC ACM コンソール（例: macOS `/dev/cu.usbmodemQuaRescue1`）を開き、`usbrecv` で `QuaStation-maintenance-initramfs.cpio.xz`（約 5 秒で転送完了）を `0x28000000` へロードして起動します。
+   再起動時に USB 2.0 ポートへ接続した状態で CDC ACM コンソール（例: macOS `/dev/cu.usbmodemQuaRescue1`）を開き、`usbrecv` で `QuaStation-maintenance-initramfs.uImage`（約 5 秒で転送完了）を `0x30000000` へロードして起動します。
 
    ```text
-   usbrecv 0x28000000 <hex_size>
-   fdt addr 0x23000000
-   fdt resize
-   fdt set /chosen linux,initrd-start <0x28000000>
-   fdt set /chosen linux,initrd-end <0x28xxxxxx>
+   usbrecv 0x30000000 <hex_size>
    boot
    ```
 
@@ -89,7 +85,9 @@ raw 起動スロットには本リポジトリのスロットライター（`ima
      QuaStation-maintenance-stage2.tar.gz
    ```
 
-   再起動後は USB ADB（`QuaStation`）、Wi-Fi（`wlan0`）、SSH、および `huastation` が自動で立ち上がります（`wpa.conf` を渡さない場合、`huastation` が本体底面ラベルの初期 SSID / パスワードで AP モードを起動します）。
+   再起動後は USB ADB（`QuaStation`）、Wi-Fi（`wlan0`）、SSH、および `huastation` が自動で立ち上がります。
+   - **SSH 認証**: `root` アカウントには初期パスワードが設定されておらず、パスワードログインは無効（`PasswordAuthentication no`）です。導入時に必ず `authorized_keys` を配置してください（未配置の場合は起動後に USB ADB `adb -s QuaStation shell` から設定できます）。
+   - **Wi-Fi**: `wpa.conf` を渡さない場合、`huastation` が本体底面ラベルの初期 SSID / パスワードで AP モードを起動します。
 
 4. **導入後のカーネル更新・HuaStation 更新**
 
@@ -97,7 +95,12 @@ raw 起動スロットには本リポジトリのスロットライター（`ima
 
    カーネル更新時は USB ADB 経由で `.deb` を送り、`sudo apt install ./linux-image-*_arm64.deb` を実行します（`adb push` + `apt install` が最速で、`postinst` が自動でスロットを書き換えます）。macOS で `adb devices` が `offline` になった場合は `adb -s QuaStation reconnect offline` を実行してください。
 
-## 4. 関連リソース
+## 4. トラブルシューティング
+
+- **U-Boot 起動失敗時、DC 電源を抜き差ししても再起動しない場合**:
+  USB-A オス-オスケーブルを接続している場合、USB ケーブルも同時に抜いてから電源を入れ直してください。本機は USB 電源ラインに逆流防止ダイオードがないため、USB 接続中は 5V 給電が回り込み、DC 電源の抜き差しだけでは完全に電源が落ちません。
+
+## 5. 関連リソース
 
 - [qua-rescue-uboot](https://github.com/makeding/qua-rescue-uboot/)（[setup.md](https://github.com/makeding/qua-rescue-uboot/blob/qua-rescue/setup.md)）: RAM レスキュー U-Boot と USB ブートチェーン
 - [huastation](https://git.huggy.moe/qua/huastation): Qua Station 管理パッケージ
@@ -105,7 +108,7 @@ raw 起動スロットには本リポジトリのスロットライター（`ima
 - [media/qua-transcode/README.md](media/qua-transcode/README.md): ハードウェアトランスコードと FFmpeg パッチのビルド・検証手順
 - [firmware/README.md](firmware/README.md) / [modules/README.md](modules/README.md): ファームウェアおよびカーネル外モジュール情報
 
-## 5. ライセンス
+## 6. ライセンス
 
 本プロジェクトは複数のライセンスを持つコンポーネント（Linux カーネル・GPL-2.0 系ドライバー、LGPL-2.1+ メディアツール、Khronos MIT ヘッダー、Realtek ファームウェア・vendor バイナリ、Armbian / Debian パッケージ等）を組み合わせた混合ライセンス構成です。
 

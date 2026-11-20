@@ -31,5 +31,11 @@ while :; do
     done
     wait "$pid"
     echo '' > "$g/UDC"
+    if [ -x /run/qua-switch-root ]; then
+        umount /dev/usb-ffs/adb 2>/dev/null || true
+        rm -f "$g/configs/c.1/ffs.adb"
+        rmdir "$g/functions/ffs.adb" "$g/configs/c.1/strings/0x409" "$g/configs/c.1" "$g/strings/0x409" "$g" 2>/dev/null || true
+        exec /run/qua-switch-root
+    fi
     sleep 1
 done
