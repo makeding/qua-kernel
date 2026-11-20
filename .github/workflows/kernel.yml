@@ -64,8 +64,8 @@ jobs:
         run: |
           mkdir -p build/maintenance-debs build/maintenance-public-root
           apt-get -o Dir::Cache::archives="$GITHUB_WORKSPACE/build/maintenance-debs" \
-            --download-only install -y --no-install-recommends \
-            adbd:arm64 busybox-static:arm64
+            --download-only --reinstall install -y --no-install-recommends \
+            adbd:arm64 busybox-static:arm64 libc6:arm64 libgcc-s1:arm64
           for package in build/maintenance-debs/*.deb; do
             dpkg-deb -x "$package" build/maintenance-public-root
           done
