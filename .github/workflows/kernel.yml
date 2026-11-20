@@ -22,7 +22,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/cache@v4
+      - name: Restore kernel compiler cache
+        id: compiler-cache
+        uses: actions/cache/restore@v4
         with:
           path: build/ccache
           key: kernel-ccache-trixie-arm64-v1-${{ github.run_id }}-${{ github.run_attempt }}
@@ -100,6 +102,13 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           path: build/release/*
+
+      - name: Save kernel compiler cache (including failed builds)
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: build/ccache
+          key: ${{ steps.compiler-cache.outputs.cache-primary-key }}
 
   release:
     if: startsWith(github.ref, 'refs/tags/v-')

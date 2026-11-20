@@ -20,13 +20,20 @@ jobs:
         with:
           repository: armbian/build
           ref: 1ce67c25929fc5b0c4b51d4c051ed7d7e156e8fd
-      - uses: actions/cache@v4
+      - name: Restore Armbian rootfs cache
+        id: rootfs-cache
+        uses: actions/cache/restore@v4
         with:
           path: cache/rootfs
           key: armbian-rootfs-trixie-arm64-minimal-1ce67c25929fc5b0c4b51d4c051ed7d7e156e8fd-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: armbian-rootfs-trixie-arm64-minimal-1ce67c25929fc5b0c4b51d4c051ed7d7e156e8fd-
       - name: Build official Armbian Trixie arm64 rootfs
         run: sudo ./compile.sh rootfs RELEASE=trixie ARCH=arm64 BUILD_MINIMAL=yes BUILD_DESKTOP=no
+      - name: Save Armbian rootfs cache
+        uses: actions/cache/save@v4
+        with:
+          path: cache/rootfs
+          key: ${{ steps.rootfs-cache.outputs.cache-primary-key }}
       - uses: actions/upload-artifact@v4
         with:
           name: armbian-base-${{ github.run_id }}
@@ -50,7 +57,9 @@ jobs:
       CCACHE_COMPILERCHECK: content
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/cache@v4
+      - name: Restore media compiler cache
+        id: compiler-cache
+        uses: actions/cache/restore@v4
         with:
           path: build/ccache
           key: media-ccache-trixie-arm64-v1-${{ github.run_id }}-${{ github.run_attempt }}
@@ -94,3 +103,9 @@ jobs:
           retention-days: 14
       - name: Attach Armbian assets to kernel Release
         run: gh release upload "$KERNEL_TAG" build/release/*
+      - name: Save media compiler cache (including failed builds)
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: build/ccache
+          key: ${{ steps.compiler-cache.outputs.cache-primary-key }}
