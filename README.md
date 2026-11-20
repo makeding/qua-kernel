@@ -1,22 +1,5 @@
 # Qua Station / Armbian Debian 13 インストール手順
 
-## 手動ビルドと Release への添付
-
-Actions の **quastation-armbian Debian 13 release (manual)** → **Run workflow** で、
-既存のカーネル Release タグを `kernel_tag` に指定します。
-push・タグ作成・pull request ではこの workflow は起動しません。
-公式 Armbian Build Framework の固定コミットから Trixie arm64 rootfs を作成し、
-指定 Release のカーネル、ネイティブビルドした media、Qua 設定を組み込みます。
-Realtek ライブラリは元リポジトリの固定コミットから取得し、既存の SHA256 一覧で照合します。
-
-同じ Release に rootfs、`QuaStation-install-tools.tar.gz`、`INSTALL.ja.md`、
-`SHA256SUMS-armbian` を添付します。既存アセットの上書きは行いません。
-ビルドログは Actions、完成品は Actions artifact と Release に保存します。
-HuaStation 導入コマンドは rootfs 内にも `sudo install-huastation` として配置します。
-カーネルパッケージの `Depends` を読み取り、APT で依存関係を解決・インストールしてから、
-カーネルを dpkg に登録・展開した状態で梱包します。実機の初回 APT 処理で
-configure が実行され、postinst が実機の起動スロットを更新します。
-
 ## ストレージ構成と起動方式
 
 配布対象は arm64 のルートファイルシステムです。ディスク全体のイメージではありません。
