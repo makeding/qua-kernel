@@ -1,11 +1,17 @@
 name: quastation armbian Debian 13 release
 
 on:
+  push:
+    tags: ["armbian-*"]
   workflow_dispatch:
     inputs:
       kernel_tag:
-        description: Existing kernel Release tag to attach Armbian assets to
-        required: true
+        description: Kernel Release tag to pair with (defaults to latest v-* release)
+        required: false
+        type: string
+      release_date:
+        description: Release date YYYYMMDD (defaults to today in UTC)
+        required: false
         type: string
 
 permissions:
@@ -60,6 +66,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       KERNEL_TAG: ${{ inputs.kernel_tag }}
+      RELEASE_DATE: ${{ inputs.release_date }}
       CCACHE_DIR: ${{ github.workspace }}/build/ccache
       CCACHE_MAXSIZE: "0"
       CCACHE_COMPILERCHECK: content
@@ -86,7 +93,13 @@ jobs:
       - name: Download matching kernel and media inputs
         run: |
           mkdir -p build/kernel build/release
-          gh release download "$KERNEL_TAG" --pattern 'linux-image-*_arm64.deb' --dir build/kernel
+          kernel_tag="${KERNEL_TAG:-}"
+          if [ -z "$kernel_tag" ]; then
+            kernel_tag=$(gh release list --limit 30 --json tagName -q '[.[] | select(.tagName | startswith("v-"))][0].tagName')
+          fi
+          test -n "$kernel_tag"
+          echo "Using kernel release tag: $kernel_tag"
+          gh release download "$kernel_tag" --pattern 'linux-image-*_arm64.deb' --dir build/kernel
           curl -fL https://ffmpeg.org/releases/ffmpeg-4.4.5.tar.xz -o build/ffmpeg-4.4.5.tar.xz
           bash media/vendor-openmax/fetch-libraries.sh
       - name: Build media runtime
@@ -115,8 +128,24 @@ jobs:
           path: build/release/*
           if-no-files-found: error
           retention-days: 14
-      - name: Attach Armbian assets to kernel Release
-        run: gh release upload "$KERNEL_TAG" build/release/*
+      - name: Publish Armbian GitHub Release
+        run: |
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            release_tag="$GITHUB_REF_NAME"
+            release_date=$(printf '%s\n' "$release_tag" | grep -Eo '[0-9]{8}$' || date -u +%Y%m%d)
+          else
+            release_date="${RELEASE_DATE:-$(date -u +%Y%m%d)}"
+            release_tag="armbian-trixie-${release_date}"
+          fi
+          if gh release view "$release_tag" >/dev/null 2>&1; then
+            gh release upload "$release_tag" build/release/* --clobber
+          elif [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            gh release create "$release_tag" build/release/* \
+              --verify-tag --title "Armbian Debian 13 (${release_date})" --generate-notes
+          else
+            gh release create "$release_tag" build/release/* \
+              --target "$GITHUB_SHA" --title "Armbian Debian 13 (${release_date})" --generate-notes
+          fi
       - name: Save media compiler cache (including failed builds)
         if: always()
         uses: actions/cache/save@v4
