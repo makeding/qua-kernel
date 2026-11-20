@@ -69,7 +69,7 @@ jobs:
           KDEB_CHANGELOG_DIST=trixie make deb CC="ccache aarch64-linux-gnu-gcc" HOSTCC="ccache gcc"
           ccache -s
 
-      - name: Assemble the ADB maintenance initramfs
+      - name: Assemble the ADB maintenance initramfs and stage2
         run: |
           mkdir -p build/maintenance-debs build/maintenance-public-root
           : > /var/lib/dpkg/status.empty
@@ -90,7 +90,27 @@ jobs:
             | cpio -it 2>/dev/null \
             | grep -Ex '(\./)?usr/lib/android-sdk/platform-tools/adbd'
 
-      - name: Embed initramfs and prepare four release assets
+          mkdir -p build/stage2-debs build/stage2-public-root build/stage2-bootstrap build/stage2-full
+          apt-get -o Dir::Cache::archives="$GITHUB_WORKSPACE/build/stage2-debs" \
+            -o Dir::State::status=/var/lib/dpkg/status.empty \
+            -o APT::Architectures::=amd64 \
+            -o APT::Architectures::=arm64 \
+            --download-only install -y --no-install-recommends \
+            adbd:arm64 busybox-static:arm64 python3.13:arm64 bash:arm64 tar:arm64 util-linux:arm64 btrfs-progs:arm64 libzstd1:arm64
+          for package in build/stage2-debs/*.deb; do
+            dpkg-deb -x "$package" build/stage2-public-root
+          done
+          xz -dc build/QuaStation-maintenance-initramfs.cpio.xz \
+            | (cd build/stage2-bootstrap && cpio -idmu --no-absolute-filenames)
+          python3 image/maintenance/build-rootfs.py \
+            build/stage2-public-root build/output/kernel-modules.tar.gz \
+            build/stage2-public-root/usr/bin/busybox build/output/usb-only-exec \
+            build/stage2-full/tree
+          python3 image/maintenance/make-stage2.py \
+            build/stage2-bootstrap build/stage2-full/tree \
+            build/QuaStation-maintenance-stage2.tar.gz
+
+      - name: Embed initramfs and prepare release assets
         run: |
           rm -f build/linux-*.deb build/linux-upstream_*
           KDEB_CHANGELOG_DIST=trixie make deb CC="ccache aarch64-linux-gnu-gcc" HOSTCC="ccache gcc"
@@ -106,8 +126,9 @@ jobs:
           mkdir -p build/release
           cp "$image_deb" "$headers_deb" \
             build/QuaStation-maintenance-initramfs.cpio.xz \
-            build/QuaStation-maintenance-initramfs.uImage build/release/
-          test "$(find build/release -maxdepth 1 -type f | wc -l)" -eq 4
+            build/QuaStation-maintenance-initramfs.uImage \
+            build/QuaStation-maintenance-stage2.tar.gz build/release/
+          test "$(find build/release -maxdepth 1 -type f | wc -l)" -eq 5
 
       - uses: actions/upload-artifact@v4
         with:

@@ -22,7 +22,7 @@ printf '#!/bin/sh\nexit 101\n' > "$root/usr/sbin/policy-rc.d"
 chmod 755 "$root/usr/sbin/policy-rc.d"
 chroot "$root" apt-get update
 chroot "$root" apt-get install -y --no-install-recommends \
-    ca-certificates curl ffmpeg libegl1 libgles2 libgl1-mesa-dri libdrm2 \
+    adbd ca-certificates curl ffmpeg libegl1 libgles2 libgl1-mesa-dri libdrm2 \
     libatomic1 zlib1g python3 btrfs-progs openssh-server wpasupplicant systemd-resolved
 # Resolve the actual package dependency expression, including alternatives and versions.
 depends=$(dpkg-deb -f "$deb" Depends)
@@ -51,11 +51,26 @@ printf '%s\n' 'LABEL=QUA_ROOT / btrfs subvol=@,compress=zstd:3,noatime,nodiscard
 printf 'qua\n' > "$root/etc/hostname"
 printf '%s\n' 'PasswordAuthentication no' 'KbdInteractiveAuthentication no' \
   'PermitRootLogin prohibit-password' > "$root/etc/ssh/sshd_config.d/10-quastation.conf"
-printf '[Match]\nName=wlan0\n[Link]\nActivationPolicy=manual\nRequiredForOnline=no\n[Network]\nDHCP=yes\n' > "$root/etc/systemd/network/20-wlan0.network"
+printf '[Match]\nName=wlan0\n[Link]\nActivationPolicy=up\nRequiredForOnline=no\n[Network]\nDHCP=yes\n' > "$root/etc/systemd/network/20-wlan0.network"
 for service in systemd-networkd ssh wpa_supplicant@wlan0; do
   unit=${service/@wlan0/@}
   ln -sfn "/usr/lib/systemd/system/$unit.service" "$root/etc/systemd/system/multi-user.target.wants/$service.service"
 done
+cat > "$root/etc/systemd/system/qua-usb-adbd.service" <<'EOF'
+[Unit]
+Description=Qua Station USB ADB Gadget
+After=systemd-modules-load.service sys-kernel-config.mount
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/qua-usb-adbd
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+EOF
+ln -sfn /etc/systemd/system/qua-usb-adbd.service "$root/etc/systemd/system/multi-user.target.wants/qua-usb-adbd.service"
 install -d "$root/usr/lib/armbian" "$root/etc/systemd/system/sshd-keygen.service.d"
 # The official board-independent rootfs cache has no board BSP identity.
 printf '%s\n' 'BOARD=quastation' 'BOARD_NAME="KDDI Qua Station"' \

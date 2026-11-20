@@ -51,54 +51,58 @@ raw 起動スロットには本リポジトリのスロットライター（`ima
 | DTB | 212736 | 31 |
 | メンテナンス initrd | 212992 | 15534 |
 
-### 推奨導入手順
+### 推奨導入手順（ベストプラクティス）
 
-1. **Qua rescue U-Boot を導入する（対象機の既存 Linux 上で実行）**
+1. **Qua rescue U-Boot（v4 以降）を導入する**
 
-   [qua-rescue-uboot](https://github.com/makeding/qua-rescue-uboot/) の [setup.md](https://github.com/makeding/qua-rescue-uboot/blob/qua-rescue/setup.md) に従いステージングと有効化を行います。
+   [qua-rescue-uboot](https://github.com/makeding/qua-rescue-uboot/releases) の [setup.md](https://github.com/makeding/qua-rescue-uboot/blob/qua-rescue/setup.md) に従いステージングと有効化を行います（v4 以降は CRC チェックがなく、`usbrecv` による高速転送に対応しています）。
 
    ```sh
    sudo python3 install-usb-chain.py . stage
    sudo python3 install-usb-chain.py . arm
    ```
 
-   独立した USB 2.0 Type-A ポートへ接続し、CDC ACM シリアルコンソール（例: macOS `/dev/cu.usbmodemQuaRescue1`、115200 baud）から RAM メンテナンス環境を起動します。起動後はシリアルを閉じ、ホストの `adb devices -l` で `QuaMaintenance` が `device` として認識されることを確認します。
+2. **RAM メンテナンス環境（`QuaMaintenance`）を起動する**
 
-2. **eMMC バックアップと個体別バンドルの生成**
+   再起動時に USB 2.0 ポートへ接続した状態で CDC ACM コンソール（例: macOS `/dev/cu.usbmodemQuaRescue1`）を開き、`usbrecv` で `QuaStation-maintenance-initramfs.cpio.xz`（約 5 秒で転送完了）を `0x28000000` へロードして起動します。
+
+   ```text
+   usbrecv 0x28000000 <hex_size>
+   fdt addr 0x23000000
+   fdt resize
+   fdt set /chosen linux,initrd-start <0x28000000>
+   fdt set /chosen linux,initrd-end <0x28xxxxxx>
+   boot
+   ```
+
+   起動後は `adb devices -l` に `QuaMaintenance` が表示されます。
+
+3. **eMMC バックアップと Armbian rootfs インストール**
 
    ```sh
    adb -s QuaMaintenance shell 'cat /sys/class/block/mmcblk0/device/cid' > cid.txt
    set -o pipefail
    adb -s QuaMaintenance exec-out 'dd if=/dev/mmcblk0 bs=1048576 2>/dev/null' | gzip -1 > factory-emmc.img.gz
    python3 RELEASE_DIR/prepare-target-bundle.py factory-emmc.img.gz "$(cat cid.txt)" RELEASE_DIR TARGET_BUNDLE
-   ```
-
-   生成された `TARGET_BUNDLE` には個体固有の factory 環境・MAC アドレスが含まれるため公開・流用しないでください。
-
-3. **Armbian rootfs の転送・インストール**
-
-   ```sh
    bash image/install-over-usb.sh RELEASE_DIR TARGET_BUNDLE \
      QuaStation-Armbian-trixie-arm64-rootfs.tar.zst authorized_keys wpa.conf \
      QuaStation-maintenance-stage2.tar.gz
    ```
 
-   完了後に再起動し、`uname -r`、`findmnt /`（`/dev/mmcblk0p2[/@]`）、`systemctl status wpa_supplicant@wlan0 ssh`、および USB ADB を確認します。
+   再起動後は USB ADB（`QuaStation`）、Wi-Fi（`wlan0`）、SSH が自動で立ち上がります。
 
 4. **（任意）HuaStation の導入と導入後のカーネル更新**
-
-   Armbian 起動後、対象機上で以下を実行すると `huastation` パッケージ（SHA256 検証付き）が導入されます。
 
    ```sh
    sudo bash image/install-huastation.sh
    ```
 
-   導入後のカーネル更新は Qua 上で `sudo apt install ./linux-image-*_arm64.deb` を実行します。パッケージの `postinst` がスロットライターを呼び出し、再起動後に新しいカーネルへ切り替わります。
+   カーネル更新時は USB ADB 経由で `.deb` を送り、`sudo apt install ./linux-image-*_arm64.deb` を実行します（`adb push` + `apt install` が最速で、`postinst` が自動でスロットを書き換えます）。macOS で `adb devices` が `offline` になった場合は `adb -s QuaStation reconnect offline` を実行してください。
 
 ## 4. 関連リソース
 
 - [qua-rescue-uboot](https://github.com/makeding/qua-rescue-uboot/)（[setup.md](https://github.com/makeding/qua-rescue-uboot/blob/qua-rescue/setup.md)）: RAM レスキュー U-Boot と USB ブートチェーン
-- [huastation_0.1.0_arm64.deb](https://git.huggy.moe/qua/huastation/releases/download/0.1.0/huastation_0.1.0_arm64.deb): Qua Station 管理パッケージ
+- [huastation](https://git.huggy.moe/qua/huastation): Qua Station 管理パッケージ
 - [image/README.md](image/README.md): RAM メンテナンスシステムおよび USB インストーラーの詳細仕様
 - [media/qua-transcode/README.md](media/qua-transcode/README.md): ハードウェアトランスコードと FFmpeg パッチのビルド・検証手順
 - [firmware/README.md](firmware/README.md) / [modules/README.md](modules/README.md): ファームウェアおよびカーネル外モジュール情報
