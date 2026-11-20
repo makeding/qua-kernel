@@ -13,7 +13,7 @@ parser.add_argument('output', type=Path)
 args = parser.parse_args()
 kernel, dtb = args.kernel.read_bytes(), args.dtb.read_bytes()
 kernelrelease = (args.kernel.parent / 'kernelrelease').read_text().strip()
-if not kernelrelease.startswith('7.3.4-qua-'):
+if not kernelrelease.startswith('7.3.4-huggy-'):
     raise SystemExit('unexpected kernel release')
 layout = json.loads(Path(__file__).with_name('boot-slot-layout.json').read_text())
 kernel_capacity = layout['slots']['kernel']['sectors'] * layout['sector_bytes']

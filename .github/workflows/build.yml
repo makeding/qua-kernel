@@ -26,7 +26,7 @@ jobs:
           apt-get install --no-install-recommends -y \
             bc bison build-essential ca-certificates cpio curl debhelper device-tree-compiler \
             dpkg-dev dwarves fakeroot file flex gcc-aarch64-linux-gnu git kmod \
-            libdw-dev libelf-dev libncurses-dev libssl-dev libssl-dev:arm64 \
+            libc6-dev-arm64-cross libdw-dev libelf-dev libncurses-dev libssl-dev libssl-dev:arm64 \
             lsb-release python3 rsync xz-utils zstd
 
       - name: Verify the media patch against upstream FFmpeg
