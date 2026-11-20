@@ -17,8 +17,7 @@ jobs:
     timeout-minutes: 120
     env:
       CCACHE_DIR: ${{ github.workspace }}/build/ccache
-      CCACHE_MAXSIZE: 2G
-      CCACHE_COMPILERCHECK: content
+      CCACHE_MAXSIZE: 0
     steps:
       - uses: actions/checkout@v4
 

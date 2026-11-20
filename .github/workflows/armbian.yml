@@ -53,8 +53,7 @@ jobs:
       GH_REPO: ${{ github.repository }}
       KERNEL_TAG: ${{ inputs.kernel_tag }}
       CCACHE_DIR: ${{ github.workspace }}/build/ccache
-      CCACHE_MAXSIZE: 1G
-      CCACHE_COMPILERCHECK: content
+      CCACHE_MAXSIZE: 0
     steps:
       - uses: actions/checkout@v4
       - name: Restore media compiler cache
