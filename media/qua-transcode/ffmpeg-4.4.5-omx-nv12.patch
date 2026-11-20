@@ -1,0 +1,22 @@
+diff --git a/libavcodec/omx.c b/libavcodec/omx.c
+index 0a6a308..e02243c 100644
+--- a/libavcodec/omx.c
++++ b/libavcodec/omx.c
+@@ -446,7 +446,7 @@ static av_cold int omx_component_init(AVCodecContext *avctx, const char *role)
+         video_port_format.nPortIndex = s->in_port;
+         if (OMX_GetParameter(s->handle, OMX_IndexParamVideoPortFormat, &video_port_format) != OMX_ErrorNone)
+             break;
+-        if (video_port_format.eColorFormat == OMX_COLOR_FormatYUV420Planar ||
++        if (video_port_format.eColorFormat == OMX_COLOR_FormatYUV420SemiPlanar ||
+             video_port_format.eColorFormat == OMX_COLOR_FormatYUV420PackedPlanar) {
+             s->color_format = video_port_format.eColorFormat;
+             break;
+@@ -942,7 +942,7 @@ static const AVOption options[] = {
+ };
+ 
+ static const enum AVPixelFormat omx_encoder_pix_fmts[] = {
+-    AV_PIX_FMT_YUV420P, AV_PIX_FMT_NONE
++    AV_PIX_FMT_NV12, AV_PIX_FMT_NONE
+ };
+ 
+ static const AVClass omx_mpeg4enc_class = {

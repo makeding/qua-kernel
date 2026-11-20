@@ -1,0 +1,27 @@
+Linux qua 7.3.4-qua-armbian #29 SMP PREEMPT Thu Nov 12 12:46:50 UTC 2026 aarch64 GNU/Linux
+Bus 001 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
+Bus 001 Device 002: ID 05e3:0610 Genesys Logic, Inc. Hub
+Bus 001 Device 003: ID 3275:0080 VidzMedia Pte Ltd PX-S1UD Digital TV Tuner
+Bus 001 Device 004: ID 3275:0080 VidzMedia Pte Ltd PX-S1UD Digital TV Tuner
+Bus 001 Device 005: ID 3275:0080 VidzMedia Pte Ltd PX-S1UD Digital TV Tuner
+Bus 001 Device 006: ID 3275:0080 VidzMedia Pte Ltd PX-S1UD Digital TV Tuner
+/:  Bus 001.Port 001: Dev 001, Class=root_hub, Driver=qua-ehci/1p, 480M
+    |__ Port 001: Dev 002, If 0, Class=Hub, Driver=hub/4p, 480M
+        |__ Port 001: Dev 003, If 0, Class=Vendor Specific Class, Driver=[none], 480M
+        |__ Port 002: Dev 004, If 0, Class=Vendor Specific Class, Driver=[none], 480M
+        |__ Port 003: Dev 005, If 0, Class=Vendor Specific Class, Driver=[none], 480M
+        |__ Port 004: Dev 006, If 0, Class=Vendor Specific Class, Driver=[none], 480M
+NAME           SIZE MODEL TRAN
+mmcblk0        7.3G       mmc
+├─mmcblk0p1     16M       mmc
+├─mmcblk0p2    6.4G       mmc
+├─mmcblk0p4      1K       mmc
+├─mmcblk0p5      4M       mmc
+├─mmcblk0p6     16M       mmc
+├─mmcblk0p7    500M       mmc
+└─mmcblk0p8    100M       mmc
+mmcblk0boot0     4M       mmc
+mmcblk0boot1     4M       mmc
+zram0        713.1M       
+zram1           50M       
+0

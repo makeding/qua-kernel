@@ -1,0 +1,19 @@
+{
+  "sector_bytes": 512,
+  "mbr_sha256": "63ade7ecfe7bfa1d99796f6e7f692dc0d2d366c57623f9632bc7b2e8c9a41bd0",
+  "first_stage": {
+    "offset": 133120,
+    "bytes": 733664,
+    "sha256": "cf87d9c52bf304be3759d198aca4c64e3bdf4f90123750ecd087004560fd428a"
+  },
+  "second_stage": {
+    "offset": 84036096,
+    "bytes": 1048576,
+    "sha256": "ef69d76e331043dc25b4848def2522d7cc8cd82d49219abcaa4066f895eeaeae"
+  },
+  "slots": {
+    "kernel": {"lba": 196608, "sectors": 12288},
+    "dtb": {"lba": 212736, "sectors": 31},
+    "initrd": {"lba": 212992, "sectors": 15534}
+  }
+}

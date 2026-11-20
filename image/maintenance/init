@@ -1,0 +1,35 @@
+#!/bin/busybox sh
+# The maintenance shell is exposed only through the local FunctionFS gadget.
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+export LD_LIBRARY_PATH=/usr/lib/aarch64-linux-gnu:/usr/lib/aarch64-linux-gnu/android
+/bin/busybox --install -s /bin
+mount -t devtmpfs devtmpfs /dev
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t tmpfs tmpfs /run
+mkdir -p /sys/kernel/config /dev/usb-ffs/adb /dev/pts /mnt/qua-install
+mount -t devpts devpts /dev/pts
+mount -t configfs configfs /sys/kernel/config
+modprobe usb_f_fs
+modprobe qua-rtk-hsotg
+g=/sys/kernel/config/usb_gadget/qua-adb
+mkdir -p "$g/strings/0x409" "$g/configs/c.1/strings/0x409" "$g/functions/ffs.adb"
+echo 0x18d1 > "$g/idVendor"
+echo 0x4ee7 > "$g/idProduct"
+echo 'Qua Station' > "$g/strings/0x409/manufacturer"
+echo 'Qua Maintenance ADB' > "$g/strings/0x409/product"
+echo QuaMaintenance > "$g/strings/0x409/serialnumber"
+echo ADB > "$g/configs/c.1/strings/0x409/configuration"
+ln -s "$g/functions/ffs.adb" "$g/configs/c.1/ffs.adb"
+mount -t functionfs adb /dev/usb-ffs/adb
+while :; do
+    /bin/usb-only-exec /usr/lib/android-sdk/platform-tools/adbd &
+    pid=$!
+    for i in $(seq 1 50); do
+        echo dwc2.2.auto > "$g/UDC" 2>/dev/null && break
+        sleep 0.1
+    done
+    wait "$pid"
+    echo '' > "$g/UDC"
+    sleep 1
+done

@@ -1,0 +1,650 @@
+From 1f0db68cf6d7123d75afe2d2dc33dd777922df82 Mon Sep 17 00:00:00 2001
+From: Qua Kernel Maintainers <maintainers@localhost>
+Date: Fri, 20 Nov 2026 19:22:05 +0900
+Subject: [PATCH] kernel: apply Qua changes to existing C sources
+
+---
+ arch/arm64/kernel/cpu_ops.c                |  6 ++
+ drivers/gpio/gpio-rtd.c                    | 32 ++++---
+ drivers/gpu/drm/panfrost/panfrost_gem.c    |  1 +
+ drivers/gpu/drm/panfrost/panfrost_mmu.c    | 17 +++-
+ drivers/mmc/host/dw_mmc.c                  | 98 ++++++++++++++++++++--
+ drivers/net/wireless/realtek/rtlwifi/pci.c |  7 ++
+ drivers/usb/dwc2/drd.c                     |  4 +
+ drivers/usb/dwc2/params.c                  | 10 ++-
+ drivers/usb/dwc3/dwc3-rtk.c                | 49 ++++++++++-
+ drivers/watchdog/rtd119x_wdt.c             | 34 +++++++-
+ 10 files changed, 233 insertions(+), 25 deletions(-)
+
+diff --git a/arch/arm64/kernel/cpu_ops.c b/arch/arm64/kernel/cpu_ops.c
+index e133011..98f6474 100644
+--- a/arch/arm64/kernel/cpu_ops.c
++++ b/arch/arm64/kernel/cpu_ops.c
+@@ -15,6 +15,9 @@
+ #include <asm/smp_plat.h>
+ 
+ extern const struct cpu_operations smp_spin_table_ops;
++#ifdef CONFIG_ARM64_RTD129X_SPIN_TABLE
++extern const struct cpu_operations rtd129x_spin_table_ops;
++#endif
+ #ifdef CONFIG_ARM64_ACPI_PARKING_PROTOCOL
+ extern const struct cpu_operations acpi_parking_protocol_ops;
+ #endif
+@@ -24,6 +27,9 @@ static const struct cpu_operations *cpu_ops[NR_CPUS] __ro_after_init;
+ 
+ static const struct cpu_operations *const dt_supported_cpu_ops[] __initconst = {
+ 	&smp_spin_table_ops,
++#ifdef CONFIG_ARM64_RTD129X_SPIN_TABLE
++	&rtd129x_spin_table_ops,
++#endif
+ 	&cpu_psci_ops,
+ 	NULL,
+ };
+diff --git a/drivers/gpio/gpio-rtd.c b/drivers/gpio/gpio-rtd.c
+index d46b40d..2bd952e 100644
+--- a/drivers/gpio/gpio-rtd.c
++++ b/drivers/gpio/gpio-rtd.c
+@@ -527,12 +527,17 @@ static int rtd_gpio_probe(struct platform_device *pdev)
+ 	struct device *dev = &pdev->dev;
+ 	struct gpio_irq_chip *irq_chip;
+ 	struct rtd_gpio *data;
++	bool gpio_only;
+ 	int ret;
+ 
+ 	data = devm_kzalloc(dev, sizeof(*data), GFP_KERNEL);
+ 	if (!data)
+ 		return -ENOMEM;
+ 
++	gpio_only = device_property_read_bool(dev, "realtek,gpio-only");
++	if (gpio_only)
++		goto skip_irqs;
++
+ 	ret = platform_get_irq(pdev, 0);
+ 	if (ret < 0)
+ 		return ret;
+@@ -543,6 +548,7 @@ static int rtd_gpio_probe(struct platform_device *pdev)
+ 		return ret;
+ 	data->irqs[1] = ret;
+ 
++skip_irqs:
+ 	data->info = device_get_match_data(dev);
+ 	if (!data->info)
+ 		return -EINVAL;
+@@ -553,9 +559,11 @@ static int rtd_gpio_probe(struct platform_device *pdev)
+ 	if (IS_ERR(data->base))
+ 		return PTR_ERR(data->base);
+ 
+-	data->irq_base = devm_platform_ioremap_resource(pdev, 1);
+-	if (IS_ERR(data->irq_base))
+-		return PTR_ERR(data->irq_base);
++	if (!gpio_only) {
++		data->irq_base = devm_platform_ioremap_resource(pdev, 1);
++		if (IS_ERR(data->irq_base))
++			return PTR_ERR(data->irq_base);
++	}
+ 
+ 	data->gpio_chip.label = dev_name(dev);
+ 	data->gpio_chip.base = -1;
+@@ -570,15 +578,17 @@ static int rtd_gpio_probe(struct platform_device *pdev)
+ 	data->gpio_chip.set_config = rtd_gpio_set_config;
+ 	data->gpio_chip.parent = dev;
+ 
+-	irq_chip = &data->gpio_chip.irq;
+-	irq_chip->handler = handle_bad_irq;
+-	irq_chip->default_type = IRQ_TYPE_NONE;
+-	irq_chip->parent_handler = rtd_gpio_irq_handle;
+-	irq_chip->parent_handler_data = data;
+-	irq_chip->num_parents = 2;
+-	irq_chip->parents = data->irqs;
++	if (!gpio_only) {
++		irq_chip = &data->gpio_chip.irq;
++		irq_chip->handler = handle_bad_irq;
++		irq_chip->default_type = IRQ_TYPE_NONE;
++		irq_chip->parent_handler = rtd_gpio_irq_handle;
++		irq_chip->parent_handler_data = data;
++		irq_chip->num_parents = 2;
++		irq_chip->parents = data->irqs;
+ 
+-	gpio_irq_chip_set_chip(irq_chip, &rtd_gpio_irq_chip);
++		gpio_irq_chip_set_chip(irq_chip, &rtd_gpio_irq_chip);
++	}
+ 
+ 	return devm_gpiochip_add_data(dev, &data->gpio_chip, data);
+ }
+diff --git a/drivers/gpu/drm/panfrost/panfrost_gem.c b/drivers/gpu/drm/panfrost/panfrost_gem.c
+index 3a7fce4..d7c46de 100644
+--- a/drivers/gpu/drm/panfrost/panfrost_gem.c
++++ b/drivers/gpu/drm/panfrost/panfrost_gem.c
+@@ -488,6 +488,7 @@ panfrost_gem_create(struct drm_device *dev, size_t size, u32 flags)
+ 	if (IS_ERR(shmem))
+ 		return ERR_CAST(shmem);
+ 
++	mapping_set_gfp_mask(shmem->base.filp->f_mapping, GFP_KERNEL | GFP_DMA | __GFP_RETRY_MAYFAIL | __GFP_NOWARN);
+ 	bo = to_panfrost_bo(&shmem->base);
+ 	bo->noexec = !!(flags & PANFROST_BO_NOEXEC);
+ 	bo->is_heap = !!(flags & PANFROST_BO_HEAP);
+diff --git a/drivers/gpu/drm/panfrost/panfrost_mmu.c b/drivers/gpu/drm/panfrost/panfrost_mmu.c
+index 4a3162c..93f4006 100644
+--- a/drivers/gpu/drm/panfrost/panfrost_mmu.c
++++ b/drivers/gpu/drm/panfrost/panfrost_mmu.c
+@@ -427,8 +427,8 @@ static int mmu_map_sg(struct panfrost_device *pfdev, struct panfrost_mmu *mmu,
+ 		unsigned long paddr = sg_dma_address(sgl);
+ 		size_t len = sg_dma_len(sgl);
+ 
+-		dev_dbg(pfdev->base.dev,
+-			"map: as=%d, iova=%llx, paddr=%lx, len=%zx",
++		dev_info_ratelimited(pfdev->base.dev,
++			"qua-gpu-map: as=%d, iova=%llx, paddr=%lx, len=%zx",
+ 			mmu->as, iova, paddr, len);
+ 
+ 		while (len) {
+@@ -775,6 +775,17 @@ static void panfrost_drm_mm_color_adjust(const struct drm_mm_node *node,
+ 	}
+ }
+ 
++
++static void *qua_pgtable_alloc(void *cookie, size_t size, gfp_t gfp)
++{
++	return (void *)__get_free_pages(gfp | GFP_DMA | __GFP_ZERO, get_order(size));
++}
++
++static void qua_pgtable_free(void *cookie, void *pages, size_t size)
++{
++	free_pages((unsigned long)pages, get_order(size));
++}
++
+ struct panfrost_mmu *panfrost_mmu_ctx_create(struct panfrost_device *pfdev)
+ {
+ 	u32 va_bits = GPU_MMU_FEATURES_VA_BITS(pfdev->features.mmu_features);
+@@ -809,6 +820,8 @@ struct panfrost_mmu *panfrost_mmu_ctx_create(struct panfrost_device *pfdev)
+ 	mmu->as = -1;
+ 
+ 	mmu->pgtbl_cfg = (struct io_pgtable_cfg) {
++		.alloc = qua_pgtable_alloc,
++		.free = qua_pgtable_free,
+ 		.pgsize_bitmap	= SZ_4K | SZ_2M,
+ 		.ias		= va_bits,
+ 		.oas		= pa_bits,
+diff --git a/drivers/mmc/host/dw_mmc.c b/drivers/mmc/host/dw_mmc.c
+index cf5cecc..98daeef 100644
+--- a/drivers/mmc/host/dw_mmc.c
++++ b/drivers/mmc/host/dw_mmc.c
+@@ -644,7 +644,10 @@ static inline int dw_mci_prepare_desc(struct dw_mci *host, struct mmc_data *data
+ 		desc64_last->des0 |= IDMAC_DES0_LD;
+ 	} else {
+ 		desc_first->des0 |= cpu_to_le32(IDMAC_DES0_FD);
+-		desc_last->des0 &= cpu_to_le32(~(IDMAC_DES0_CH | IDMAC_DES0_DIC));
++		/* RTD1295 IDMAC requires chained terminal descriptors. */
++		desc_last->des0 &= cpu_to_le32(~IDMAC_DES0_DIC);
++		if (!(host->quirks & DW_MMC_QUIRK_IDMAC_KEEP_CHAIN))
++			desc_last->des0 &= cpu_to_le32(~IDMAC_DES0_CH);
+ 		desc_last->des0 |= cpu_to_le32(IDMAC_DES0_LD);
+ 	}
+ 
+@@ -668,6 +671,9 @@ static int dw_mci_idmac_start_dma(struct dw_mci *host, unsigned int sg_len)
+ 
+ 	/* drain writebuffer */
+ 	wmb();
++	/* RTD wrapper must observe coherent descriptors before IDMAC is kicked. */
++	if (host->pre_write)
++		host->pre_write(host);
+ 
+ 	/* Make sure to reset DMA in case we did PIO before this */
+ 	dw_mci_ctrl_reset(host, SDMMC_CTRL_DMA_RESET);
+@@ -681,9 +687,13 @@ static int dw_mci_idmac_start_dma(struct dw_mci *host, unsigned int sg_len)
+ 	/* drain writebuffer */
+ 	wmb();
+ 
+-	/* Enable the IDMAC */
++	/* Enable the IDMAC. Some AHB wrappers deadlock on fixed bursts. */
+ 	temp = mci_readl(host, BMOD);
+-	temp |= SDMMC_IDMAC_ENABLE | SDMMC_IDMAC_FB;
++	temp |= SDMMC_IDMAC_ENABLE;
++	if (host->quirks & DW_MMC_QUIRK_IDMAC_NO_FIXED_BURST)
++		temp &= ~SDMMC_IDMAC_FB;
++	else
++		temp |= SDMMC_IDMAC_FB;
+ 	mci_writel(host, BMOD, temp);
+ 
+ 	/* Start it running */
+@@ -944,6 +954,12 @@ static void dw_mci_ctrl_thld(struct dw_mci *host, struct mmc_data *data)
+ 	u16 thld_size;
+ 	u8 enable;
+ 
++	if (host->quirks & DW_MMC_QUIRK_FIXED_CARD_THR) {
++		mci_writel(host, CDTHRCTL,
++			    SDMMC_SET_THLD(512, SDMMC_CARD_RD_THR_EN));
++		return;
++	}
++
+ 	/*
+ 	 * CDTHRCTL doesn't exist prior to 240A (in fact that register offset is
+ 	 * in the FIFO region, so we really shouldn't access it).
+@@ -1054,6 +1070,7 @@ static void dw_mci_submit_data(struct dw_mci *host, struct mmc_data *data)
+ 	int flags = SG_MITER_ATOMIC;
+ 	u32 temp;
+ 
++	host->idmac_error = 0;
+ 	data->error = -EINPROGRESS;
+ 
+ 	WARN_ON(host->data);
+@@ -1422,6 +1439,18 @@ static int dw_mci_card_busy(struct mmc_host *mmc)
+ 	return !!(status & SDMMC_STATUS_BUSY);
+ }
+ 
++static int dw_mci_multi_io_quirk(struct mmc_card *card,
++				       unsigned int direction, int blocks)
++{
++	struct dw_mci *host = mmc_priv(card->host);
++
++	(void)direction;
++	if (host->quirks & DW_MMC_QUIRK_FORCE_PIO)
++		return 1;
++
++	return blocks;
++}
++
+ static int dw_mci_switch_voltage(struct mmc_host *mmc, struct mmc_ios *ios)
+ {
+ 	struct dw_mci *host = mmc_priv(mmc);
+@@ -1679,6 +1708,7 @@ static const struct mmc_host_ops dw_mci_ops = {
+ 	.ack_sdio_irq		= dw_mci_ack_sdio_irq,
+ 	.execute_tuning		= dw_mci_execute_tuning,
+ 	.card_busy		= dw_mci_card_busy,
++	.multi_io_quirk	= dw_mci_multi_io_quirk,
+ 	.start_signal_voltage_switch = dw_mci_switch_voltage,
+ 	.prepare_hs400_tuning	= dw_mci_prepare_hs400_tuning,
+ };
+@@ -1806,6 +1836,15 @@ static int dw_mci_data_complete(struct dw_mci *host, struct mmc_data *data)
+ {
+ 	u32 status = host->data_status;
+ 
++	/* A platform IDMAC validator may reject a false completion. */
++	if (host->idmac_error) {
++		data->bytes_xfered = 0;
++		data->error = host->idmac_error;
++		host->idmac_error = 0;
++		dw_mci_reset(host);
++		return data->error;
++	}
++
+ 	if (status & DW_MCI_DATA_ERROR_FLAGS) {
+ 		if (status & SDMMC_INT_DRTO) {
+ 			data->error = -ETIMEDOUT;
+@@ -2519,8 +2558,16 @@ static void dw_mci_pull_data(struct dw_mci *host, void *buf, int cnt)
+ 	buf += len;
+ 	cnt -= len;
+ 
+-	/* get the rest of the data */
+-	host->pull_data(host, buf, cnt);
++	/* RTD guard covers the complete FIFO burst. */
++	{
++		unsigned long flags = 0;
++
++		if (host->io_lock)
++			host->io_lock(host, &flags);
++		host->pull_data(host, buf, cnt);
++		if (host->io_unlock)
++			host->io_unlock(host, flags);
++	}
+ }
+ 
+ static void dw_mci_read_data_pio(struct dw_mci *host, bool dto)
+@@ -2605,7 +2652,16 @@ static void dw_mci_write_data_pio(struct dw_mci *host)
+ 			len = min(remain, fcnt);
+ 			if (!len)
+ 				break;
+-			host->push_data(host, (void *)(buf + offset), len);
++			/* RTD guard covers each FIFO write burst. */
++			{
++				unsigned long flags = 0;
++
++				if (host->io_lock)
++					host->io_lock(host, &flags);
++				host->push_data(host, (void *)(buf + offset), len);
++				if (host->io_unlock)
++					host->io_unlock(host, flags);
++			}
+ 			data->bytes_xfered += len;
+ 			offset += len;
+ 			remain -= len;
+@@ -2781,11 +2837,26 @@ static irqreturn_t dw_mci_interrupt(int irq, void *dev_id)
+ 	} else {
+ 		pending = mci_readl(host, IDSTS);
+ 		if (pending & (SDMMC_IDMAC_INT_TI | SDMMC_IDMAC_INT_RI)) {
++			int validate_error = 0;
++
++			/* Validate SoC-specific IDMAC completion before W1C. */
++			if ((host->quirks & DW_MMC_QUIRK_IDMAC_KEEP_CHAIN) &&
++			    host->idmac_validate && host->data)
++				validate_error = host->idmac_validate(host, pending);
+ 			mci_writel(host, IDSTS, SDMMC_IDMAC_INT_TI |
+ 							SDMMC_IDMAC_INT_RI);
+ 			mci_writel(host, IDSTS, SDMMC_IDMAC_INT_NI);
+-			if (!test_bit(EVENT_DATA_ERROR, &host->pending_events))
++			if (validate_error) {
++				host->idmac_error = validate_error;
++				if (host->data)
++					host->data->bytes_xfered = 0;
++				smp_wmb();
++				set_bit(EVENT_DATA_ERROR, &host->pending_events);
++				queue_work(system_bh_wq, &host->bh_work);
++			} else if (!test_bit(EVENT_DATA_ERROR,
++						  &host->pending_events)) {
+ 				host->dma_ops->complete((void *)host);
++			}
+ 		}
+ 	}
+ 
+@@ -2880,6 +2951,15 @@ static int dw_mci_init_host(struct dw_mci *host)
+ 		mmc->max_seg_size = mmc->max_req_size;
+ 	}
+ 
++	/* Keep diagnostic requests within one block-layer page. */
++	if (host->quirks & DW_MMC_QUIRK_FORCE_PIO) {
++		mmc->max_segs = 1;
++		mmc->max_blk_size = 512;
++		mmc->max_blk_count = PAGE_SIZE / 512;
++		mmc->max_req_size = PAGE_SIZE;
++		mmc->max_seg_size = PAGE_SIZE;
++	}
++
+ 	if (mmc->caps & MMC_CAP_NEEDS_POLL)
+ 		dev_info(&mmc->class_dev, "card is polling.\n");
+ 	else if (!mmc_card_is_removable(mmc))
+@@ -2909,6 +2989,10 @@ static void dw_mci_init_dma(struct dw_mci *host)
+ 	int addr_config;
+ 	struct device *dev = host->dev;
+ 
++	/* QUA diagnostic bypass of DMA setup. */
++	if (host->quirks & DW_MMC_QUIRK_FORCE_PIO)
++		goto no_dma;
++
+ 	/*
+ 	* Check tansfer mode from HCON[17:16]
+ 	* Clear the ambiguous description of dw_mmc databook:
+diff --git a/drivers/net/wireless/realtek/rtlwifi/pci.c b/drivers/net/wireless/realtek/rtlwifi/pci.c
+index d3b79d0..55f3305 100644
+--- a/drivers/net/wireless/realtek/rtlwifi/pci.c
++++ b/drivers/net/wireless/realtek/rtlwifi/pci.c
+@@ -358,6 +358,8 @@ static void rtl_pci_init_aspm(struct ieee80211_hw *hw)
+ 	}
+ }
+ 
++#include "rtlwifi-quastation.h"
++
+ static void _rtl_pci_io_handler_init(struct device *dev,
+ 				     struct ieee80211_hw *hw)
+ {
+@@ -372,6 +374,7 @@ static void _rtl_pci_io_handler_init(struct device *dev,
+ 	rtlpriv->io.read8 = pci_read8_sync;
+ 	rtlpriv->io.read16 = pci_read16_sync;
+ 	rtlpriv->io.read32 = pci_read32_sync;
++	qua_rtl_pci_io_init(dev, rtlpriv);
+ }
+ 
+ static bool _rtl_update_earlymode_info(struct ieee80211_hw *hw,
+@@ -1721,6 +1724,7 @@ static int rtl_pci_start(struct ieee80211_hw *hw)
+ 	struct rtl_btc_ops *btc_ops = rtlpriv->btcoexist.btc_ops;
+ 
+ 	int err;
++	bool qua_irq_gated;
+ 
+ 	rtl_pci_reset_trx_ring(hw);
+ 
+@@ -1734,8 +1738,10 @@ static int rtl_pci_start(struct ieee80211_hw *hw)
+ 		btc_ops->btc_init_variables_wifi_only(rtlpriv);
+ 	}
+ 
++	qua_irq_gated = qua_rtl_pci_irq_prepare(hw);
+ 	err = rtlpriv->cfg->ops->hw_init(hw);
+ 	if (err) {
++		qua_rtl_pci_irq_complete(hw, qua_irq_gated, true);
+ 		rtl_dbg(rtlpriv, COMP_INIT, DBG_DMESG,
+ 			"Failed to config hardware!\n");
+ 		kfree(rtlpriv->btcoexist.btc_context);
+@@ -1758,6 +1764,7 @@ static int rtl_pci_start(struct ieee80211_hw *hw)
+ 	rtlpci->up_first_time = false;
+ 
+ 	rtl_dbg(rtlpriv, COMP_INIT, DBG_DMESG, "%s OK\n", __func__);
++	qua_rtl_pci_irq_complete(hw, qua_irq_gated, false);
+ 	return 0;
+ }
+ 
+diff --git a/drivers/usb/dwc2/drd.c b/drivers/usb/dwc2/drd.c
+index 1ad8fa3..a1aa40d 100644
+--- a/drivers/usb/dwc2/drd.c
++++ b/drivers/usb/dwc2/drd.c
+@@ -174,6 +174,7 @@ int dwc2_drd_init(struct dwc2_hsotg *hsotg)
+ {
+ 	struct usb_role_switch_desc role_sw_desc = {0};
+ 	struct usb_role_switch *role_sw;
++	const char *role_sw_name;
+ 	int ret;
+ 
+ 	if (!device_property_read_bool(hsotg->dev, "usb-role-switch"))
+@@ -183,6 +184,9 @@ int dwc2_drd_init(struct dwc2_hsotg *hsotg)
+ 	role_sw_desc.driver_data = hsotg;
+ 	role_sw_desc.fwnode = dev_fwnode(hsotg->dev);
+ 	role_sw_desc.set = dwc2_drd_role_sw_set;
++	if (!device_property_read_string(hsotg->dev,
++					 "kddi,role-switch-name", &role_sw_name))
++		role_sw_desc.name = role_sw_name;
+ 	role_sw_desc.allow_userspace_control = true;
+ 
+ 	role_sw = usb_role_switch_register(hsotg->dev, &role_sw_desc);
+diff --git a/drivers/usb/dwc2/params.c b/drivers/usb/dwc2/params.c
+index 091bfcf..5fdd8d3 100644
+--- a/drivers/usb/dwc2/params.c
++++ b/drivers/usb/dwc2/params.c
+@@ -1063,7 +1063,7 @@ int dwc2_init_params(struct dwc2_hsotg *hsotg)
+ 	set_params = device_get_match_data(hsotg->dev);
+ 	if (set_params) {
+ 		set_params(hsotg);
+-	} else {
++	} else if (dev_is_pci(hsotg->dev->parent)) {
+ 		const struct pci_device_id *pmatch =
+ 			pci_match_id(dwc2_pci_ids, to_pci_dev(hsotg->dev->parent));
+ 
+@@ -1077,6 +1077,14 @@ int dwc2_init_params(struct dwc2_hsotg *hsotg)
+ 	if (ret)
+ 		return ret;
+ 
++	/* Qua's vendor USB2 UDC uses FIFO PIO.  This property is set only
++	 * by its board glue; leave all other controller policies unchanged. */
++	if (device_property_read_bool(hsotg->dev, "kddi,quastation-pio")) {
++		hsotg->params.g_dma = false;
++		hsotg->params.g_dma_desc = false;
++		dev_info(hsotg->dev, "Qua USB2 gadget uses FIFO PIO\n");
++	}
++
+ 	dwc2_check_params(hsotg);
+ 
+ 	return 0;
+diff --git a/drivers/usb/dwc3/dwc3-rtk.c b/drivers/usb/dwc3/dwc3-rtk.c
+index 56c53e0..5b7fd8c 100644
+--- a/drivers/usb/dwc3/dwc3-rtk.c
++++ b/drivers/usb/dwc3/dwc3-rtk.c
+@@ -7,6 +7,7 @@
+  */
+ 
+ #include <linux/cleanup.h>
++#include <linux/device.h>
+ #include <linux/module.h>
+ #include <linux/kernel.h>
+ #include <linux/platform_device.h>
+@@ -305,8 +306,8 @@ static int dwc3_rtk_probe_dwc3_core(struct dwc3_rtk *rtk)
+ 	dwc3_dev = &dwc3_pdev->dev;
+ 	rtk->dwc = platform_get_drvdata(dwc3_pdev);
+ 	if (!rtk->dwc) {
+-		dev_err(dev, "failed to find dwc3 core\n");
+-		ret = -ENODEV;
++		dev_dbg(dev, "dwc3 core not ready; deferring probe\n");
++		ret = -EPROBE_DEFER;
+ 		goto err_pdev_put;
+ 	}
+ 
+@@ -352,12 +353,52 @@ depopulate:
+ 	return ret;
+ }
+ 
++/*
++ * The Qua dual-port profile leaves the global USB reset and gate to the
++ * EHCI supplier.  Do not request either resource here: that would let a
++ * second driver reset an already running port.  A device link makes probe
++ * ordering and lifetime explicit instead of relying on DT node order.
++ */
++static int dwc3_rtk_quastation_dual_link_owner(struct device *dev)
++{
++	struct device_node *owner_np;
++	struct platform_device *owner;
++	struct device_link *link;
++
++	if (!of_device_is_compatible(dev->of_node,
++				     "kddi,quastation-dual-usb-dwc3"))
++		return 0;
++
++	owner_np = of_parse_phandle(dev->of_node,
++				   "kddi,shared-usb-owner", 0);
++	if (!owner_np)
++		return dev_err_probe(dev, -EINVAL,
++				     "missing shared USB owner\n");
++	owner = of_find_device_by_node(owner_np);
++	of_node_put(owner_np);
++	if (!owner)
++		return -EPROBE_DEFER;
++	if (!device_is_bound(&owner->dev)) {
++		put_device(&owner->dev);
++		return -EPROBE_DEFER;
++	}
++
++	link = device_link_add(dev, &owner->dev,
++			       DL_FLAG_PM_RUNTIME | DL_FLAG_AUTOREMOVE_CONSUMER);
++	put_device(&owner->dev);
++	if (!link)
++		return -ENOMEM;
++
++	return 0;
++}
++
+ static int dwc3_rtk_probe(struct platform_device *pdev)
+ {
+ 	struct dwc3_rtk *rtk;
+ 	struct device *dev = &pdev->dev;
+ 	struct resource *res;
+ 	void __iomem *regs;
++	int ret;
+ 
+ 	rtk = devm_kzalloc(dev, sizeof(*rtk), GFP_KERNEL);
+ 	if (!rtk)
+@@ -381,6 +422,10 @@ static int dwc3_rtk_probe(struct platform_device *pdev)
+ 			return PTR_ERR(rtk->pm_base);
+ 	}
+ 
++	ret = dwc3_rtk_quastation_dual_link_owner(dev);
++	if (ret)
++		return ret;
++
+ 	return dwc3_rtk_probe_dwc3_core(rtk);
+ }
+ 
+diff --git a/drivers/watchdog/rtd119x_wdt.c b/drivers/watchdog/rtd119x_wdt.c
+index 0bfadb5..a43c2f4 100644
+--- a/drivers/watchdog/rtd119x_wdt.c
++++ b/drivers/watchdog/rtd119x_wdt.c
+@@ -8,6 +8,7 @@
+ 
+ #include <linux/bitops.h>
+ #include <linux/clk.h>
++#include <linux/delay.h>
+ #include <linux/io.h>
+ #include <linux/of.h>
+ #include <linux/of_address.h>
+@@ -17,6 +18,7 @@
+ #define RTD119X_TCWCR		0x0
+ #define RTD119X_TCWTR		0x4
+ #define RTD119X_TCWOV		0xc
++#define RTD1295_RSTB_CNT		0x40
+ 
+ #define RTD119X_TCWCR_WDEN_DISABLED		0xa5
+ #define RTD119X_TCWCR_WDEN_ENABLED		0xff
+@@ -76,17 +78,34 @@ static int rtd119x_wdt_set_timeout(struct watchdog_device *wdev, unsigned int va
+ 	return 0;
+ }
+ 
++/* RTD1295 BSP restart sequence, also verified through the serial devmem
++ * recovery path on Qua Station. Keep this in the watchdog's owning driver. */
++static int rtd119x_wdt_restart(struct watchdog_device *wdev,
++			     unsigned long action, void *unused)
++{
++	struct rtd119x_watchdog_device *data = watchdog_get_drvdata(wdev);
++
++	rtd119x_wdt_stop(wdev);
++	writel(0x00800000, data->base + RTD1295_RSTB_CNT);
++	writel(0x00800000, data->base + RTD119X_TCWOV);
++	writel(RTD119X_TCWTR_WDCLR, data->base + RTD119X_TCWTR);
++	rtd119x_wdt_start(wdev);
++	mdelay(500);
++	return 0;
++}
++
+ static const struct watchdog_ops rtd119x_wdt_ops = {
+ 	.owner = THIS_MODULE,
+ 	.start		= rtd119x_wdt_start,
+ 	.stop		= rtd119x_wdt_stop,
+ 	.ping		= rtd119x_wdt_ping,
+ 	.set_timeout	= rtd119x_wdt_set_timeout,
++	.restart	= rtd119x_wdt_restart,
+ };
+ 
+ static const struct watchdog_info rtd119x_wdt_info = {
+ 	.identity = "rtd119x-wdt",
+-	.options = 0,
++	.options = WDIOF_SETTIMEOUT | WDIOF_KEEPALIVEPING | WDIOF_MAGICCLOSE,
+ };
+ 
+ static const struct of_device_id rtd119x_wdt_dt_ids[] = {
+@@ -99,6 +118,7 @@ static int rtd119x_wdt_probe(struct platform_device *pdev)
+ 	struct device *dev = &pdev->dev;
+ 	struct rtd119x_watchdog_device *data;
+ 	unsigned long rate;
++	bool running;
+ 
+ 	data = devm_kzalloc(dev, sizeof(*data), GFP_KERNEL);
+ 	if (!data)
+@@ -115,21 +135,31 @@ static int rtd119x_wdt_probe(struct platform_device *pdev)
+ 	rate = clk_get_rate(data->clk);
+ 	if (!rate)
+ 		return -EINVAL;
++	running = (readl(data->base + RTD119X_TCWCR) &
++		   RTD119X_TCWCR_WDEN_MASK) == RTD119X_TCWCR_WDEN_ENABLED;
+ 
+ 	data->wdt_dev.info = &rtd119x_wdt_info;
+ 	data->wdt_dev.ops = &rtd119x_wdt_ops;
+ 	data->wdt_dev.timeout = 120;
+ 	data->wdt_dev.max_timeout = 0xffffffff / rate;
++	data->wdt_dev.max_hw_heartbeat_ms = data->wdt_dev.max_timeout * 1000;
+ 	data->wdt_dev.min_timeout = 1;
+ 	data->wdt_dev.parent = dev;
+ 
+ 	watchdog_stop_on_reboot(&data->wdt_dev);
++	watchdog_set_restart_priority(&data->wdt_dev, 128);
+ 	watchdog_set_drvdata(&data->wdt_dev, data);
+ 	platform_set_drvdata(pdev, data);
+ 
+ 	writel_relaxed(RTD119X_TCWTR_WDCLR, data->base + RTD119X_TCWTR);
+ 	rtd119x_wdt_set_timeout(&data->wdt_dev, data->wdt_dev.timeout);
+-	rtd119x_wdt_stop(&data->wdt_dev);
++	if (running) {
++		/* Retain boot-time recovery until the core and userspace take over. */
++		set_bit(WDOG_HW_RUNNING, &data->wdt_dev.status);
++		rtd119x_wdt_ping(&data->wdt_dev);
++	} else {
++		rtd119x_wdt_stop(&data->wdt_dev);
++	}
+ 
+ 	return devm_watchdog_register_device(dev, &data->wdt_dev);
+ }
+-- 
+2.56.0
+

@@ -1,0 +1,111 @@
+name: Qua Station kernel release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v-*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    container: debian:trixie
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          dpkg --add-architecture arm64
+          apt-get update
+          apt-get install --no-install-recommends -y \
+            bc bison build-essential cpio curl debhelper device-tree-compiler \
+            dpkg-dev dwarves fakeroot file flex gcc-aarch64-linux-gnu git kmod \
+            libdw-dev libelf-dev libncurses-dev libssl-dev libssl-dev:arm64 \
+            lsb-release python3 rsync xz-utils zstd
+
+      - name: Verify the media patch against upstream FFmpeg
+        run: |
+          mkdir -p build/ffmpeg-patch-check
+          curl -fL https://ffmpeg.org/releases/ffmpeg-4.4.5.tar.xz \
+            -o build/ffmpeg-4.4.5.tar.xz
+          echo 'f9514e0d3515aee5a271283df71636e1d1ff7274b15853bcd84e144be416ab07  build/ffmpeg-4.4.5.tar.xz' \
+            | sha256sum -c -
+          tar -xJf build/ffmpeg-4.4.5.tar.xz -C build/ffmpeg-patch-check
+          patch --batch --dry-run \
+            -d build/ffmpeg-patch-check/ffmpeg-4.4.5 -p1 \
+            < media/qua-transcode/ffmpeg-4.4.5-omx-nv12.patch
+
+      - name: Derive kernel release from tag
+        if: startsWith(github.ref, 'refs/tags/v-')
+        run: |
+          release_number=$(printf '%s\n' "$GITHUB_REF_NAME" | grep -Eo '[0-9]+$')
+          echo "QUA_LOCALVERSION=-huggy-${release_number}" >> "$GITHUB_ENV"
+
+      - name: Build kernel packages
+        run: KDEB_CHANGELOG_DIST=trixie make deb
+
+      - name: Assemble the ADB maintenance initramfs
+        run: |
+          mkdir -p build/maintenance-debs build/maintenance-public-root
+          apt-get -o Dir::Cache::archives="$GITHUB_WORKSPACE/build/maintenance-debs" \
+            --download-only install -y --no-install-recommends \
+            adbd:arm64 busybox-static:arm64
+          for package in build/maintenance-debs/*.deb; do
+            dpkg-deb -x "$package" build/maintenance-public-root
+          done
+          tar -C build/maintenance-public-root -czf \
+            build/maintenance-public-root.tar.gz .
+          cat build/maintenance-public-root.tar.gz \
+            | scripts/build-maintenance-initramfs.sh
+          xz -dc build/QuaStation-maintenance-initramfs.cpio.xz \
+            | cpio -it 2>/dev/null \
+            | grep -Fx './usr/lib/android-sdk/platform-tools/adbd'
+
+      - name: Embed initramfs and prepare four release assets
+        run: |
+          KDEB_CHANGELOG_DIST=trixie make deb
+          image_deb=$(find build -maxdepth 1 -type f \
+            -name 'linux-image-*_arm64.deb' -print -quit)
+          headers_deb=$(find build -maxdepth 1 -type f \
+            -name 'linux-headers-*_arm64.deb' -print -quit)
+          test -n "$image_deb"
+          test -n "$headers_deb"
+          dpkg-deb -c "$image_deb" \
+            | grep -F '/boot/QuaStation-maintenance-initramfs.uImage'
+          mkdir -p build/release
+          cp "$image_deb" "$headers_deb" \
+            build/QuaStation-maintenance-initramfs.cpio.xz \
+            build/QuaStation-maintenance-initramfs.uImage build/release/
+          test "$(find build/release -maxdepth 1 -type f | wc -l)" -eq 4
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qua-release-assets-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: build/release/*
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v-')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: qua-release-assets-${{ github.sha }}
+          path: release
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" release/* \
+            --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes

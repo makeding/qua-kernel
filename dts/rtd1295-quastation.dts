@@ -1,0 +1,657 @@
+// SPDX-License-Identifier: (GPL-2.0-or-later OR BSD-2-Clause)
+/* VE/SMP plus the internal read-only SD-host trial. */
+// SPDX-License-Identifier: (GPL-2.0-or-later OR BSD-2-Clause)
+// SPDX-License-Identifier: (GPL-2.0-or-later OR BSD-2-Clause)
+/* Bootable diagnostic profile. The GPU glue is loaded manually. */
+// SPDX-License-Identifier: (GPL-2.0-or-later OR BSD-2-Clause)
+/* Keep the USB2 rescue gadget and LTE host while enabling port0 SuperSpeed. */
+// SPDX-License-Identifier: (GPL-2.0-or-later OR BSD-2-Clause)
+/* EHCI owns the shared USB reset/clock; DWC3 port0 and port1 are consumers. */
+// Storage-only integration trial, without pending CPU/DVFS/USB DT changes.
+/dts-v1/;
+/memreserve/ 0x22000000 0x00200000;
+#include "rtd1295.dtsi"
+#include <dt-bindings/gpio/gpio.h>
+/ {
+ model = "KDDI Qua Station maintenance";
+ compatible = "kddi,quastation", "realtek,rtd1295";
+ memory@20000000 { device_type="memory"; reg=<0x20000000 0x60000000>; };
+ aliases { serial0= &uart0; };
+ chosen { stdout-path="serial0:115200n8"; bootargs="console=ttyS0,115200 earlycon=uart8250,mmio32,0x98007800 maxcpus=1 rdinit=/init clk_ignore_unused"; };
+ qua_gates: clock-controller@9800000c {
+  compatible="kddi,quastation-gates"; reg=<0x9800000c 8>; clocks=<&osc27M>,<&emmc_ciu>; #clock-cells=<1>;
+ };
+ emmc_ciu: emmc-ciu { compatible="fixed-clock"; #clock-cells=<0>; clock-frequency=<200000000>; };
+ irqmux: interrupt-controller@9801b000 {
+  compatible="kddi,quastation-irq-mux"; reg=<0x9801b000 0x100>,<0x98007000 0x100>;
+  interrupt-controller; #interrupt-cells=<2>; #address-cells=<0>;
+  interrupts=<GIC_SPI 40 IRQ_TYPE_LEVEL_HIGH>,<GIC_SPI 41 IRQ_TYPE_LEVEL_HIGH>;
+ };
+ misc_gpio: gpio@9801b100 {
+  compatible="realtek,rtd1295-misc-gpio"; reg=<0x9801b100 0x100>,<0x9801b000 0x100>;
+  gpio-controller; #gpio-cells=<2>; interrupt-controller; #interrupt-cells=<2>;
+  interrupt-parent=<&irqmux>; interrupts=<0 19>,<0 20>;
+  fan-enable { gpio-hog; gpios=<11 GPIO_ACTIVE_HIGH>,<12 GPIO_ACTIVE_HIGH>; output-high; line-name="fan-full-speed"; };
+  wifi-enable { gpio-hog; gpios=<63 GPIO_ACTIVE_HIGH>; output-high; line-name="wifi-radio-enable"; };
+ };
+ iso_gpio: gpio@98007100 {
+  // Not needed for PCIe reset or fan/radio hogs. Its shared IRQ window
+  // includes reset4 at 0x98007088; reserving it prevents UART reset probe.
+  status="disabled";
+  compatible="realtek,rtd1295-iso-gpio"; reg=<0x98007100 0x100>,<0x98007000 0x100>;
+  gpio-controller; #gpio-cells=<2>; interrupt-controller; #interrupt-cells=<2>;
+  interrupt-parent=<&irqmux>; interrupts=<1 19>,<1 20>;
+ };
+ emmc@98012000 {
+  compatible="kddi,quastation-emmc"; reg=<0x98012000 0xa00>,<0x9801a000 0x80>;
+  interrupts=<GIC_SPI 42 IRQ_TYPE_LEVEL_HIGH>;
+  clocks=<&qua_gates 2>,<&qua_gates 3>; clock-names="biu","ciu";
+  bus-width=<1>; non-removable; max-frequency=<25000000>;
+  fifo-depth=<128>;
+  broken-cd; disable-wp;
+ };
+ pcie0: pcie@9804e000 {
+  phys_a=<0x31810801 0xb2001101 0x00100001>;
+  phys_b=<0x00000003 0x00900001 0x40080401 0x5ac10801 0x32b40f01 0x72001101>;
+  compatible="realtek,rtk-pcie-slot1";
+  reg=<0x9804e000 0x1000>,<0x9804f000 0x1000>,<0x9801c600 0x100>,<0x9801a000 0x300>,<0x98012000 0x1000>;
+  device_type="pci"; #address-cells=<3>; #size-cells=<2>; #interrupt-cells=<1>;
+  ranges=<0x02000000 0 0xc0000000 0xc0000000 0 0x01000000>,<0x01000000 0 0x00030000 0x00030000 0 0x00010000>;
+  bus-range=<0 0xff>; linux,pci-domain=<0>; num-lanes=<1>;
+  // Provisional DMA ceiling: only physical addresses below 1 GiB have
+  // passed the live Wi-Fi transfer. Keep upper memory available to CPUs.
+  dma-ranges=<0x02000000 0 0 0 0 0x40000000>;
+  interrupt-map-mask=<0 0 0 0>; interrupt-map=<0 0 0 0 &gic GIC_SPI 61 IRQ_TYPE_LEVEL_HIGH>;
+  gpios=<&misc_gpio 18 GPIO_ACTIVE_HIGH>; clocks=<&qua_gates 0>;
+  resets=<&reset2 RTD1295_RSTN_PCIE0_STITCH>,<&reset2 RTD1295_RSTN_PCIE0>,<&reset2 RTD1295_RSTN_PCIE0_CORE>,<&reset2 RTD1295_RSTN_PCIE0_POWER>,<&reset2 RTD1295_RSTN_PCIE0_NONSTICH>,<&reset2 RTD1295_RSTN_PCIE0_PHY>,<&reset4 RTD1295_RSTN_PCIE0_PHY_MDIO>;
+  reset-names="stitch","rstn","core","power","nonstitch","phy","phy_mdio";
+ };
+ pcie1: pcie@9803b000 {
+  realtek,phy-mdio-values = <0x00000003>,
+			<0x27E90301>,
+			<0x52F50401>,
+			<0xead70501>,
+			<0x000c0601>,
+			<0xa6530a01>,
+			<0xC4662001>,
+			<0x8EA01B01>,
+			<0x8EA05B01>,
+			<0xa84a0101>,
+			<0xb8032b01>,
+			<0x27e94301>,
+			<0x52f54401>,
+			<0xead74501>,
+			<0x000c4601>,
+			<0xa6534a01>,
+			<0xd4776001>,
+			<0xa84a4101>,
+			<0xa8036b01>,
+			<0x01225a01>,
+			<0x521C0901>,
+			<0x501C0901>,
+			<0x521C0901>,
+			<0x08282401>,
+			<0x08286401>;
+  compatible="realtek,rtk-pcie-slot2";
+  reg=<0x9803b000 0x1000>,<0x9803c000 0x1000>,<0x9801c600 0x100>,<0x9801a000 0x300>,<0x98012000 0x1000>;
+  device_type="pci"; #address-cells=<3>; #size-cells=<2>; #interrupt-cells=<1>;
+  ranges=<0x02000000 0 0xc1000000 0xc1000000 0 0x01000000>,<0x01000000 0 0x00040000 0x00040000 0 0x00010000>;
+  bus-range=<1 0xff>; linux,pci-domain=<1>; num-lanes=<1>;
+  dma-ranges=<0x02000000 0 0 0 0 0x40000000>;
+  interrupt-map-mask=<0 0 0 0>; interrupt-map=<0 0 0 0 &gic GIC_SPI 62 IRQ_TYPE_LEVEL_HIGH>;
+  gpios=<&misc_gpio 20 GPIO_ACTIVE_HIGH>; clocks=<&qua_gates 1>;
+  resets=<&reset2 RTD1295_RSTN_PCIE1_STITCH>,<&reset2 RTD1295_RSTN_PCIE1>,<&reset2 RTD1295_RSTN_PCIE1_CORE>,<&reset2 RTD1295_RSTN_PCIE1_POWER>,<&reset2 RTD1295_RSTN_PCIE1_NONSTICH>,<&reset2 RTD1295_RSTN_PCIE1_PHY>,<&reset4 RTD1295_RSTN_PCIE1_PHY_MDIO>;
+  reset-names="stitch","rstn","core","power","nonstitch","phy","phy_mdio";
+  speed-mode=<0>;
+ };
+};
+&uart0 { status="okay"; interrupt-parent=<&irqmux>; interrupts=<1 2>; };
+
+// Native Realtek eMMC host: register resources follow the original Qua DTS.
+&{/emmc@98012000} {
+ compatible = "kddi,quastation-rtkemmc";
+ reg = <0x98012000 0xa00>, <0x98000000 0x600>,
+       <0x9801a000 0x80>, <0x9801b000 0x150>;
+ reg-names = "emmc", "crt", "sb2", "misc";
+ // Declare the controller's 30-bit DMA reach even when both PCIe hosts are off.
+ #address-cells = <1>;
+ #size-cells = <1>;
+ dma-ranges = <0 0 0x40000000>;
+ bus-width = <8>;
+ max-frequency = <25000000>;
+ non-removable;
+ no-sdio;
+ no-sd;
+ cap-mmc-highspeed;
+ pddrive_nf_s0 = <1 0x77 0x77 0x77 0x33>;
+ pddrive_nf_s2 = <1 0xbb 0xbb 0xbb 0x33>;
+ phase_tuning = <0 0>;
+};
+
+/ { model = "KDDI Qua Station native eMMC"; };
+&pcie1 { status = "disabled"; };
+
+// SPDX-License-Identifier: GPL-2.0-or-later
+/*
+ * Minimal upstream USB host path for Qua Station.
+ *
+ * This is RTD1295 XHCI controller #1: the vendor runtime DT uses wrapper
+ * 0x98013c00, DWC3 core 0x98029000 and USB2 PHY data/control registers
+ * 0x98031280/0x98013c14.  It is USB2-only and is enough to enumerate a
+ * hub or tuner.  The physical socket mapping has not yet been proven; the
+ * stock DT assigns its VBUS (and EHCI/OHCI port2 VBUS) to misc GPIO19.
+ *
+ * The old Realtek usb-manager, reset-init and EHCI/OHCI bindings are not
+ * mainline bindings.  The upstream rtd-dwc3 glue initializes wrapper/PM
+ * registers and the upstream RTD1295 USB2 PHY supplies its native tuning.
+ * The PHY1/global-USB reset and clk_en_usb bit4 sequence was accepted by
+ * live GSNPSID (0x5533300A).  USB device/hub enumeration remains unproven.
+ */
+
+/ {
+	usb1_vbus: regulator-usb1-vbus {
+		compatible = "regulator-fixed";
+		regulator-name = "usb1-vbus";
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		gpio = <&misc_gpio 19 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		regulator-boot-on;
+		regulator-always-on;
+	};
+
+	usb1_phy: usb2phy@98031280 {
+		compatible = "realtek,rtd1295-usb2phy";
+		reg = <0x98031280 0x4>, <0x98013c14 0x4>;
+		#phy-cells = <0>;
+	};
+
+	usb1: usb@98013c00 {
+		compatible = "kddi,quastation-dwc3", "realtek,rtd1295-dwc3",
+			     "realtek,rtd-dwc3";
+		reg = <0x98013c00 0x140>, <0x98013d60 0x4>;
+		interrupts = <GIC_SPI 21 IRQ_TYPE_LEVEL_HIGH>;
+		clocks = <&qua_gates 4>;
+		clock-names = "usb";
+		resets = <&reset1 RTD1295_RSTN_USB>,
+			 <&reset1 RTD1295_RSTN_USB_PHY1>;
+		reset-names = "usb", "phy1";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+		status = "okay";
+
+		usb@98029000 {
+			compatible = "snps,dwc3";
+			reg = <0x98029000 0x9000>;
+			interrupts = <GIC_SPI 21 IRQ_TYPE_LEVEL_HIGH>;
+			phys = <&usb1_phy>;
+			phy-names = "usb2-phy";
+			vbus-supply = <&usb1_vbus>;
+			dr_mode = "host";
+			maximum-speed = "high-speed";
+			snps,dis_u2_susphy_quirk;
+		};
+	};
+};
+
+// SPDX-License-Identifier: GPL-2.0-or-later
+/* RTD1295 port2: legacy EHCI-only boot variant owns the shared RSTN_USB. */
+/ {
+	usb2_ehci_phy: usb2phy-rle0599 {
+		compatible = "kddi,quastation-rle0599-usb2phy";
+		reg = <0x98013824 0x4>, <0x980130a4 0x4>, <0x980171cc 0x4>;
+		#phy-cells = <0>;
+	};
+
+	usb2_ehci: usb@98013000 {
+		compatible = "kddi,quastation-ehci";
+		reg = <0x98013000 0x100>, <0x98013800 0x80>;
+		interrupts = <GIC_SPI 21 IRQ_TYPE_LEVEL_HIGH>;
+		phys = <&usb2_ehci_phy>;
+		phy-names = "usb2-phy";
+		/* usb1_vbus is shared GPIO19 and is retained always-on. */
+		vbus-supply = <&usb1_vbus>;
+		clocks = <&qua_gates 4>;
+		clock-names = "usb";
+		resets = <&reset1 RTD1295_RSTN_USB>,
+			 <&reset2 RTD1295_RSTN_USB_PHY2>,
+			 <&reset1 RTD1295_RSTN_USB_PHY0>,
+			 <&reset1 RTD1295_RSTN_USB_PHY1>,
+			 <&reset1 RTD1295_RSTN_USB3_PHY0_POW>;
+		reset-names = "usb", "phy2", "phy0", "phy1", "u3phy0";
+		status = "okay";
+	};
+};
+
+/ {
+	model = "KDDI Qua Station EHCI plus USB0 and USB1 host candidate";
+
+	usb0_vbus: regulator-usb0-vbus {
+		compatible = "regulator-fixed";
+		regulator-name = "usb0-vbus";
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		/* ISO GPIO1 is firmware-held; don't bind iso_gpio over reset4. */
+		regulator-boot-on;
+		regulator-always-on;
+	};
+
+	usb0_phy: usb2phy@98028280 {
+		compatible = "realtek,rtd1295-usb2phy";
+		reg = <0x98028280 0x4>, <0x98013214 0x4>;
+		#phy-cells = <0>;
+	};
+
+	usb0: usb@98013200 {
+		compatible = "kddi,quastation-dual-usb-dwc3",
+			     "realtek,rtd1295-dwc3", "realtek,rtd-dwc3";
+		reg = <0x98013200 0x140>, <0x98013364 0x4>;
+		interrupts = <GIC_SPI 21 IRQ_TYPE_LEVEL_HIGH>;
+		kddi,shared-usb-owner = <&usb2_ehci>;
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+		status = "okay";
+
+		usb@98020000 {
+			compatible = "snps,dwc3";
+			reg = <0x98020000 0x9000>;
+			interrupts = <GIC_SPI 21 IRQ_TYPE_LEVEL_HIGH>;
+			phys = <&usb0_phy>;
+			phy-names = "usb2-phy";
+			vbus-supply = <&usb0_vbus>;
+			dr_mode = "host";
+			maximum-speed = "high-speed";
+			snps,dis_u2_susphy_quirk;
+		};
+	};
+
+	/* GPIO19 is LTE power in vendor DTS and VBUS for USB1/port2. */
+	usb1_modem_phy: usb2phy@98031280 {
+		compatible = "realtek,rtd1295-usb2phy";
+		reg = <0x98031280 0x4>, <0x98013c14 0x4>;
+		#phy-cells = <0>;
+	};
+
+	usb1_modem: usb@98013c00 {
+		compatible = "kddi,quastation-dual-usb-dwc3",
+			     "realtek,rtd1295-dwc3", "realtek,rtd-dwc3";
+		reg = <0x98013c00 0x140>, <0x98013d60 0x4>;
+		interrupts = <GIC_SPI 21 IRQ_TYPE_LEVEL_HIGH>;
+		kddi,shared-usb-owner = <&usb2_ehci>;
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+		status = "okay";
+
+		usb@98029000 {
+			compatible = "snps,dwc3";
+			reg = <0x98029000 0x9000>;
+			interrupts = <GIC_SPI 21 IRQ_TYPE_LEVEL_HIGH>;
+			phys = <&usb1_modem_phy>;
+			phy-names = "usb2-phy";
+			vbus-supply = <&usb1_vbus>;
+			dr_mode = "host";
+			maximum-speed = "high-speed";
+			snps,dis_u2_susphy_quirk;
+		};
+	};
+};
+
+/ {
+	usb0_ss_phy: usb3phy@98013210 {
+		compatible = "realtek,rtd1295-usb3phy";
+		reg = <0x98013210 0x4>;
+		#phy-cells = <0>;
+	};
+
+	usb2_udc: usb2-udc@981e0000 {
+		compatible = "Realtek,rtd129x-usb2-udc";
+		reg = <0x981e0000 0x8000>, <0x98013800 0x80>;
+		interrupts = <GIC_SPI 21 IRQ_TYPE_LEVEL_HIGH>;
+		kddi,shared-usb-owner = <&usb2_ehci>;
+		kddi,usb2-role-switch;
+		status = "okay";
+	};
+};
+
+&pcie1 { status = "okay"; };
+
+&usb2_ehci {
+	kddi,usb2-device-mode;
+	kddi,usb3-fixed-cc1;
+	/delete-property/ vbus-supply;
+	resets = <&reset1 RTD1295_RSTN_USB>,
+		 <&reset2 RTD1295_RSTN_USB_PHY2>,
+		 <&reset1 RTD1295_RSTN_USB_PHY0>,
+		 <&reset1 RTD1295_RSTN_USB_PHY1>,
+		 <&reset1 RTD1295_RSTN_USB3_PHY0_POW>,
+		 <&reset1 RTD1295_RSTN_USB3_P0_MDIO>;
+	reset-names = "usb", "phy2", "phy0", "phy1", "u3phy0", "u3mdio0";
+};
+
+&usb1_vbus {
+	/delete-property/ regulator-always-on;
+	/delete-property/ regulator-boot-on;
+};
+
+&usb1_modem {
+	usb@98029000 { /delete-property/ vbus-supply; };
+};
+
+&usb0 {
+	usb@98020000 {
+		phys = <&usb0_phy>, <&usb0_ss_phy>;
+		phy-names = "usb2-phy", "usb3-phy";
+		maximum-speed = "super-speed";
+		snps,dis_ss_park_mode;
+	};
+};
+
+/ {
+	model = "KDDI Qua Station GPU trial";
+	qua_gpu_pll: gpu-pll-clock {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <300000000>;
+	};
+
+	qua_gpu_init: gpu-init@98000000 {
+		compatible = "kddi,quastation-gpu-init";
+		reg = <0x98000000 0x600>, <0x98054000 0xa0>;
+		clocks = <&qua_gates 5>;
+		resets = <&reset1 RTD1295_RSTN_GPU>;
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		gpu@98050000 {
+			compatible = "realtek,rtd1295-mali", "arm,mali-t820";
+			reg = <0x98050000 0xffff>;
+			interrupts = <GIC_SPI 67 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 68 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 66 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-names = "job", "mmu", "gpu";
+			clocks = <&qua_gates 5>;
+			clock-names = "core";
+		};
+	};
+};
+
+&qua_gates {
+	clocks = <&osc27M>, <&emmc_ciu>, <&qua_gpu_pll>;
+};
+
+&{/reserved-memory} {
+	/* Existing 2 MiB memreserve; console survives a watchdog reboot. */
+	qua_ramoops: ramoops@22000000 {
+		compatible = "ramoops";
+		reg = <0x22000000 0x200000>;
+		record-size = <0x20000>;
+		console-size = <0x100000>;
+	};
+};
+
+&iso {
+	qua_i2c0_pinmux: pinmux@310 {
+		compatible = "pinctrl-single";
+		reg = <0x310 4>;
+		#pinctrl-cells = <1>;
+		pinctrl-single,register-width = <32>;
+		pinctrl-single,function-mask = <0x03c00000>;
+		qua_i2c0_pins: i2c0-pins {
+			pinctrl-single,pins = <0 0x01400000>;
+		};
+	};
+
+	qua_i2c0: i2c@d00 {
+		compatible = "realtek,rtk-i2c";
+		reg = <0xd00 0x100>, <0 0x100>;
+		interrupt-parent = <&irqmux>;
+		interrupts = <1 8>;
+		i2c-num = <0>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&qua_i2c0_pins>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		status = "okay";
+	};
+};
+
+/ {
+    video-engine@98040000 {
+        compatible = "Realtek,rtk1295-ve1";
+        reg = <0x98040000 0x8000>, <0x98000000 0x200>, <0x98007000 0x30>;
+        interrupt-parent = <&gic>;
+        interrupts = <GIC_SPI 53 IRQ_TYPE_LEVEL_HIGH>, <GIC_SPI 54 IRQ_TYPE_LEVEL_HIGH>;
+        clocks = <&qua_gates 6>, <&qua_gates 7>, <&qua_gates 8>, <&qua_gates 9>, <&qua_gates 10>;
+        clock-names = "clk_ve1", "clk_ve2", "clk_sysh", "pll_ve1", "pll_ve2";
+        resets = <&reset1 RTD1295_RSTN_VE1>, <&reset1 RTD1295_RSTN_VE2>;
+        reset-names = "ve1", "ve2";
+        status = "okay";
+    };
+};
+
+&cpu0 { enable-method = "rtk-spin-table"; cpu-release-addr = <0x0 0x9801aa44>; };
+&cpu1 { enable-method = "rtk-spin-table"; cpu-release-addr = <0x0 0x9801aa44>; };
+&cpu2 { enable-method = "rtk-spin-table"; cpu-release-addr = <0x0 0x9801aa44>; };
+&cpu3 { enable-method = "rtk-spin-table"; cpu-release-addr = <0x0 0x9801aa44>; };
+
+/* Qua Station CPU observability and cold-boot SMP, without DVFS writes. */
+
+/ {
+	qua_cpu_clk: cpu-clock {
+		compatible = "kddi,quastation-rtd1295-cpu-clock";
+		realtek,crt = <&crt>;
+		realtek,sb2 = <&sb2>;
+		clocks = <&osc27M>;
+		#clock-cells = <0>;
+	};
+
+	qua_cpu_thermal: thermal-sensor@9801d150 {
+		compatible = "kddi,quastation-rtd1295-thermal";
+		reg = <0x9801d150 0x20>;
+		#thermal-sensor-cells = <0>;
+	};
+
+	thermal-zones {
+		cpu-thermal {
+			polling-delay-passive = <1000>;
+			polling-delay = <1000>;
+			thermal-sensors = <&qua_cpu_thermal>;
+
+			trips {
+				cpu-critical {
+					temperature = <130000>;
+					hysteresis = <2000>;
+					type = "critical";
+				};
+			};
+		};
+	};
+};
+
+&cpu0 {
+	enable-method = "rtk-spin-table";
+	cpu-release-addr = <0x0 0x9801aa44>;
+	clocks = <&qua_cpu_clk>;
+};
+
+&cpu1 {
+	enable-method = "rtk-spin-table";
+	cpu-release-addr = <0x0 0x9801aa44>;
+	clocks = <&qua_cpu_clk>;
+};
+
+&cpu2 {
+	enable-method = "rtk-spin-table";
+	cpu-release-addr = <0x0 0x9801aa44>;
+	clocks = <&qua_cpu_clk>;
+};
+
+&cpu3 {
+	enable-method = "rtk-spin-table";
+	cpu-release-addr = <0x0 0x9801aa44>;
+	clocks = <&qua_cpu_clk>;
+};
+
+#include <dt-bindings/gpio/gpio.h>
+
+/* Stage 3: standard GPIO regulator and cpufreq-dt, capped at 1.2 GHz. */
+
+/ {
+	qua_cpu_vdd: regulator-cpu {
+		compatible = "regulator-gpio";
+		regulator-name = "qua-cpu-vdd";
+		regulator-min-microvolt = <850000>;
+		regulator-max-microvolt = <1050000>;
+		regulator-boot-on;
+		regulator-always-on;
+		regulator-settling-time-us = <50>;
+
+		gpios = <&iso_gpio 16 GPIO_ACTIVE_HIGH>,
+			<&iso_gpio 17 GPIO_ACTIVE_HIGH>;
+		/* Latest live sample: both selector inputs are low (state 00). */
+		gpios-states = <0 0>;
+		states = <850000 0>,
+			 <950000 2>,
+			 <1050000 3>;
+	};
+
+	qua_cpu_opps: opp-table-cpu {
+		compatible = "operating-points-v2";
+		opp-shared;
+
+		opp-300000000 {
+			opp-hz = /bits/ 64 <300000000>;
+			opp-microvolt = <850000>;
+			clock-latency-ns = <500000>;
+		};
+		opp-400000000 {
+			opp-hz = /bits/ 64 <400000000>;
+			opp-microvolt = <850000>;
+			clock-latency-ns = <500000>;
+		};
+		opp-500000000 {
+			opp-hz = /bits/ 64 <500000000>;
+			opp-microvolt = <850000>;
+			clock-latency-ns = <500000>;
+		};
+		opp-600000000 {
+			opp-hz = /bits/ 64 <600000000>;
+			opp-microvolt = <850000>;
+			clock-latency-ns = <500000>;
+		};
+		opp-700000000 {
+			opp-hz = /bits/ 64 <700000000>;
+			opp-microvolt = <850000>;
+			clock-latency-ns = <500000>;
+		};
+		opp-800000000 {
+			opp-hz = /bits/ 64 <800000000>;
+			opp-microvolt = <850000>;
+			clock-latency-ns = <500000>;
+		};
+		opp-900000000 {
+			opp-hz = /bits/ 64 <900000000>;
+			opp-microvolt = <950000>;
+			clock-latency-ns = <500000>;
+		};
+		opp-1000000000 {
+			opp-hz = /bits/ 64 <1000000000>;
+			opp-microvolt = <950000>;
+			clock-latency-ns = <500000>;
+		};
+		opp-1100000000 {
+			opp-hz = /bits/ 64 <1100000000>;
+			opp-microvolt = <950000>;
+			clock-latency-ns = <500000>;
+		};
+		opp-1200000000 {
+			opp-hz = /bits/ 64 <1200000000>;
+			opp-microvolt = <950000>;
+			clock-latency-ns = <500000>;
+		};
+	};
+};
+
+&iso_gpio {
+	status = "okay";
+	realtek,gpio-only;
+};
+
+&cpu0 {
+	cpu-supply = <&qua_cpu_vdd>;
+	operating-points-v2 = <&qua_cpu_opps>;
+};
+
+&cpu1 {
+	cpu-supply = <&qua_cpu_vdd>;
+	operating-points-v2 = <&qua_cpu_opps>;
+};
+
+&cpu2 {
+	cpu-supply = <&qua_cpu_vdd>;
+	operating-points-v2 = <&qua_cpu_opps>;
+};
+
+&cpu3 {
+	cpu-supply = <&qua_cpu_vdd>;
+	operating-points-v2 = <&qua_cpu_opps>;
+};
+
+&{/reserved-memory} {
+    /*
+     * Board RAM is 0x00000000..0x80000000. GPU/VE DMA is limited to the
+     * first GiB; keep CMA in the upper half of that window, above the
+     * legacy firmware reservations. The runtime CMA base is checked after
+     * boot because the kernel image and fixed reservations affect placement.
+     */
+    qua_cma: linux,cma {
+        compatible = "shared-dma-pool";
+        reusable;
+        size = <0x08000000>;
+        alignment = <0x00200000>;
+        alloc-ranges = <0x20000000 0x20000000>;
+        linux,cma-default;
+    };
+};
+
+/ {
+    sdmmc@98010400 {
+        compatible = "Realtek,rtk1295-sdmmc";
+        reg = <0x98000000 0x400>, <0x98010400 0x200>,
+              <0x9801a000 0x400>, <0x98012000 0xa00>,
+              <0x98010a00 0x40>;
+        interrupts = <GIC_SPI 44 IRQ_TYPE_LEVEL_HIGH>;
+        clocks = <&qua_gates 11>, <&qua_gates 12>;
+        clock-names = "cr", "sd-ip";
+        power-gpios = <&misc_gpio 99 GPIO_ACTIVE_LOW>;
+        #address-cells = <1>;
+        #size-cells = <1>;
+        dma-ranges = <0 0 0x40000000>;
+        status = "okay";
+    };
+};
+
+// SPDX-License-Identifier: (GPL-2.0-or-later OR BSD-2-Clause)
+/* GPIO levels are retained at probe; misc 19 belongs to USB power. */
+/ {
+ qua_leds: leds {
+  compatible = "gpio-leds";
+  pwr_green { label = "pwr_led_g"; gpios = <&iso_gpio 29 GPIO_ACTIVE_LOW>; default-state = "keep"; };
+  pwr_red { label = "pwr_led_r"; gpios = <&iso_gpio 30 GPIO_ACTIVE_LOW>; default-state = "keep"; };
+  wifi_red { label = "wifi_led_r"; gpios = <&iso_gpio 7 GPIO_ACTIVE_LOW>; default-state = "keep"; };
+  led_ctrl { label = "led_ctrl"; gpios = <&iso_gpio 21 GPIO_ACTIVE_LOW>; default-state = "keep"; };
+  led_ctrl1 { label = "led_ctrl1"; gpios = <&iso_gpio 20 GPIO_ACTIVE_LOW>; default-state = "keep"; };
+  hdd_red { label = "hdd_led_r"; gpios = <&misc_gpio 7 GPIO_ACTIVE_LOW>; default-state = "keep"; };
+  hdd_green { label = "hdd_led_g"; gpios = <&misc_gpio 6 GPIO_ACTIVE_LOW>; default-state = "keep"; };
+  wifi_green { label = "wifi_led_g"; gpios = <&misc_gpio 8 GPIO_ACTIVE_LOW>; default-state = "keep"; };
+  imp_green { label = "imp_led_g"; gpios = <&misc_gpio 5 GPIO_ACTIVE_LOW>; default-state = "keep"; };
+  imp_red { label = "imp_led_r"; gpios = <&misc_gpio 100 GPIO_ACTIVE_LOW>; default-state = "keep"; };
+  lte_red { label = "lte_led_r"; gpios = <&misc_gpio 17 GPIO_ACTIVE_LOW>; default-state = "keep"; };
+ };
+};
+
+/ { model = "KDDI Qua Station"; };

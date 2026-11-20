@@ -1,0 +1,10 @@
+d17264e1c06d83bd045a859e1a16e808438058c9774eec6c8e95aa1a4ab14513  /Users/h/project/rom-reverse/qua-kernel/patches/0006-clk-qua-usb-gate.patch
+9a4391fd6d3dc36ac73b1d514211869d90ccb770738a4de27b9238e1e48e2972  /Users/h/project/rom-reverse/qua-kernel/patches/0007-phy-qua-rle0599.patch
+a740ffed62cfea9aa1bb35f55d309711ce2e4beb430a52a99880290e9c331839  /Users/h/project/rom-reverse/qua-kernel/patches/0008-ehci-qua-host.patch
+f778c525848782a3242b58f7cf080ce185c1eb964dba779f8d8963422c7d5ac0  /Users/h/project/rom-reverse/qua-kernel/patches/0009-arm64-dts-ehci-profile.patch
+ad5abc2cc9533be5711494f54ff464bce7c723f761b94eff87cdf86f767d208e  /Users/h/project/rom-reverse/qua-kernel/patches/0010-ehci-bpi-phy-reset-refinement.patch
+ba3394e456b73547233906d6ada172325a7362d876cbaf85bd74b8e4254dd957  /Users/h/project/rom-reverse/qua-kernel/configs/qua-storage-wifi-ehci.config
+f9bb536aec83228c48046db54cbfab93ee5ef6896a37cb253eea53c1ec4e271c  /Users/h/project/rom-reverse/qua-kernel/dts/rtd1295-quastation-usb.dtsi
+3887907d7a4ded95a98adf2948e019822aa021fb88d45932bb44cdfcd509abcd  /Users/h/project/rom-reverse/qua-kernel/dts/rtd1295-quastation-ehci.dtsi
+7a1020999f4f432878ba881d629a5e05b7f078da94ea007c13c76715fbb1bb7a  /Users/h/project/rom-reverse/qua-kernel/dts/rtd1295-quastation-native-emmc-ehci.dts
+99298661f5a31ba06b0afaa78f48163ba7788cdab14509118d80b65c55b7002c  /Users/h/project/rom-reverse/qua-kernel/provenance/ehci-reseated-live.log
