@@ -27,6 +27,8 @@ chroot "$root" apt-get install -y --no-install-recommends \
 # Resolve the actual package dependency expression, including alternatives and versions.
 depends=$(dpkg-deb -f "$deb" Depends)
 chroot "$root" apt-get satisfy -y --no-install-recommends "$depends"
+install -m 755 "$project/image/install-huastation.sh" "$root/usr/local/sbin/install-huastation"
+chroot "$root" /usr/local/sbin/install-huastation
 rm "$root/usr/sbin/policy-rc.d"
 # Register and unpack the kernel; configure its hardware-facing postinst on Qua.
 install -d "$root/var/cache/apt/archives"
@@ -41,7 +43,6 @@ for name in transcode-direct-gpubob gpu-bob.so rpc-probe.so ffmpeg-omx; do
     install -m 755 "$media/$name" "$root/opt/qua-video/openmax/"
 done
 install -m 755 "$project/media/qua-transcode/transcode-mirakurun-gpu.sh" "$root/opt/qua-video/openmax/"
-install -m 755 "$project/image/install-huastation.sh" "$root/usr/local/sbin/install-huastation"
 printf 'qua-ion\n' > "$root/etc/modules-load.d/quastation-ve.conf"
 install -d "$root/lib/firmware/rtlwifi" "$root/etc/systemd/network" \
   "$root/etc/ssh/sshd_config.d" "$root/etc/wpa_supplicant" \
@@ -56,21 +57,6 @@ for service in systemd-networkd ssh wpa_supplicant@wlan0; do
   unit=${service/@wlan0/@}
   ln -sfn "/usr/lib/systemd/system/$unit.service" "$root/etc/systemd/system/multi-user.target.wants/$service.service"
 done
-cat > "$root/etc/systemd/system/qua-usb-adbd.service" <<'EOF'
-[Unit]
-Description=Qua Station USB ADB Gadget
-After=systemd-modules-load.service sys-kernel-config.mount
-
-[Service]
-Type=simple
-ExecStart=/usr/local/sbin/qua-usb-adbd
-Restart=on-failure
-RestartSec=2
-
-[Install]
-WantedBy=multi-user.target
-EOF
-ln -sfn /etc/systemd/system/qua-usb-adbd.service "$root/etc/systemd/system/multi-user.target.wants/qua-usb-adbd.service"
 install -d "$root/usr/lib/armbian" "$root/etc/systemd/system/sshd-keygen.service.d"
 # The official board-independent rootfs cache has no board BSP identity.
 printf '%s\n' 'BOARD=quastation' 'BOARD_NAME="KDDI Qua Station"' \

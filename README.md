@@ -89,13 +89,11 @@ raw 起動スロットには本リポジトリのスロットライター（`ima
      QuaStation-maintenance-stage2.tar.gz
    ```
 
-   再起動後は USB ADB（`QuaStation`）、Wi-Fi（`wlan0`）、SSH が自動で立ち上がります。
+   再起動後は USB ADB（`QuaStation`）、Wi-Fi（`wlan0`）、SSH、および `huastation` が自動で立ち上がります（`wpa.conf` を渡さない場合、`huastation` が本体底面ラベルの初期 SSID / パスワードで AP モードを起動します）。
 
-4. **（任意）HuaStation の導入と導入後のカーネル更新**
+4. **導入後のカーネル更新・HuaStation 更新**
 
-   ```sh
-   sudo bash image/install-huastation.sh
-   ```
+   `huastation` は Armbian rootfs に同梱済みです。再導入や更新を行う場合は `/usr/local/sbin/install-huastation`（または `sudo bash image/install-huastation.sh`）を実行してください。
 
    カーネル更新時は USB ADB 経由で `.deb` を送り、`sudo apt install ./linux-image-*_arm64.deb` を実行します（`adb push` + `apt install` が最速で、`postinst` が自動でスロットを書き換えます）。macOS で `adb devices` が `offline` になった場合は `adb -s QuaStation reconnect offline` を実行してください。
 
