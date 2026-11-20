@@ -24,7 +24,7 @@ jobs:
           dpkg --add-architecture arm64
           apt-get update
           apt-get install --no-install-recommends -y \
-            bc bison build-essential cpio curl debhelper device-tree-compiler \
+            bc bison build-essential ca-certificates cpio curl debhelper device-tree-compiler \
             dpkg-dev dwarves fakeroot file flex gcc-aarch64-linux-gnu git kmod \
             libdw-dev libelf-dev libncurses-dev libssl-dev libssl-dev:arm64 \
             lsb-release python3 rsync xz-utils zstd
