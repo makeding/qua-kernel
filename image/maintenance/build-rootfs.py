@@ -47,8 +47,15 @@ if not a.bootstrap:
              'usr/bin/mountpoint', 'usr/sbin/blockdev', 'usr/bin/btrfs', 'usr/sbin/mkfs.btrfs']
 queue = []
 def copy_file(rel):
-    target = src / rel
-    if not target.exists(): raise RuntimeError('missing image input: ' + rel)
+    candidates = (
+        src / rel,
+        src / 'usr' / rel,
+        src / rel.removeprefix('usr/'),
+        src / 'usr/lib/aarch64-linux-gnu' / Path(rel).name,
+        src / 'lib/aarch64-linux-gnu' / Path(rel).name,
+    )
+    target = next((p for p in candidates if p.exists()), None)
+    if target is None: raise RuntimeError('missing image input: ' + rel)
     dest = out / rel
     dest.parent.mkdir(parents=True, exist_ok=True)
     # Copy resolved contents so absolute source symlinks cannot escape the image.
@@ -73,7 +80,7 @@ while queue:
         dirs = ('usr/lib/aarch64-linux-gnu', 'usr/lib/aarch64-linux-gnu/android')
         if any((out / d / soname).exists() for d in dirs): continue
         for d in dirs:
-            if (src / d / soname).exists():
+            if (src / d / soname).exists() or (src / d.removeprefix('usr/') / soname).exists():
                 copy_file(d + '/' + soname)
                 break
         else:

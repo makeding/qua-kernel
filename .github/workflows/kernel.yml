@@ -88,7 +88,7 @@ jobs:
             | scripts/build-maintenance-initramfs.sh
           xz -dc build/QuaStation-maintenance-initramfs.cpio.xz \
             | cpio -it 2>/dev/null \
-            | grep -Fx './usr/lib/android-sdk/platform-tools/adbd'
+            | grep -Ex '(\./)?usr/lib/android-sdk/platform-tools/adbd'
 
       - name: Embed initramfs and prepare four release assets
         run: |
