@@ -28,7 +28,8 @@ chroot "$root" apt-get install -y --no-install-recommends \
 depends=$(dpkg-deb -f "$deb" Depends)
 chroot "$root" apt-get satisfy -y --no-install-recommends "$depends"
 install -m 755 "$project/image/install-huastation.sh" "$root/usr/local/sbin/install-huastation"
-cat > "$root/usr/local/bin/systemctl" <<'EOF'
+mv "$root/usr/bin/systemctl" "$root/usr/bin/systemctl.real"
+cat > "$root/usr/bin/systemctl" <<'EOF'
 #!/bin/sh
 n=$#
 for a in "$@"; do
@@ -36,11 +37,12 @@ for a in "$@"; do
   set -- "$@" "$a"
 done
 shift "$n"
-exec /usr/bin/systemctl "$@"
+exec /usr/bin/systemctl.real "$@"
 EOF
-chmod 755 "$root/usr/local/bin/systemctl"
+chmod 755 "$root/usr/bin/systemctl"
 chroot "$root" /usr/local/sbin/install-huastation
-rm -f "$root/usr/local/bin/systemctl" "$root/usr/sbin/policy-rc.d"
+mv "$root/usr/bin/systemctl.real" "$root/usr/bin/systemctl"
+rm -f "$root/usr/sbin/policy-rc.d"
 # Register and unpack the kernel; configure its hardware-facing postinst on Qua.
 install -d "$root/var/cache/apt/archives"
 install -m 644 "$deb" "$root/var/cache/apt/archives/$(basename "$deb")"
