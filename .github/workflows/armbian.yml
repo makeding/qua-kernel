@@ -69,7 +69,7 @@ jobs:
       - name: Prepare release assets
         run: |
           cp build/armbian/QuaStation-Armbian-trixie-arm64-rootfs.tar.zst build/release/
-          cp image/INSTALL.md build/release/INSTALL.ja.md
+          cp README.md build/release/INSTALL.ja.md
           tar -czf build/release/QuaStation-install-tools.tar.gz image
           cd build/release
           sha256sum *.tar.zst *.tar.gz INSTALL.ja.md > SHA256SUMS-armbian

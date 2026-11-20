@@ -1,0 +1,44 @@
+# ライセンス
+
+quastation-armbian は複数のライセンスを持つコード・ファームウェア・vendor
+コンポーネントを組み合わせたプロジェクトです。リポジトリ全体に単一の
+ライセンスを適用するものではありません。各ファイルの SPDX 識別子、
+著作権表示、ライセンス本文、および配布元の条件が優先されます。
+
+## カーネルとドライバー
+
+Linux カーネルは GPL-2.0-only と Linux-syscall-note に従います。
+本リポジトリのカーネル・ドライバーには GPL-2.0-or-later 等の個別表示が
+あります。各ソースファイルの表示を参照してください。
+
+## Media
+
+`media/qua-transcode/transcode-direct.c` と `gpu-bob.c` は
+LGPL-2.1-or-later です。FFmpeg は、そのソースとビルド構成に適用される
+ライセンスに従います。
+
+`media/vendor-openmax/include/` の Khronos ヘッダーには MIT 形式の
+許諾文と著作権表示が含まれます。各ヘッダー内の全文を維持してください。
+
+`media/vendor-openmax/lib/` の Realtek ランタイムは vendor バイナリです。
+本プロジェクトの GPL・LGPL 表示によって再許諾されるものではありません。
+取得元バンドルには再配布条件が含まれていないため、本ファイルはこれらの
+バイナリに対する再配布許諾を付与しません。
+
+## ファームウェア
+
+ファームウェアと regulatory database は個別の条件に従います。
+以下の既存の著作権・ライセンス記録を参照してください。
+
+- `firmware/COPYRIGHT.firmware-realtek`
+- `firmware/COPYRIGHT.wireless-regdb`
+- `firmware/README.md`
+
+## 配布イメージと外部パッケージ
+
+Armbian、Debian、および追加パッケージはそれぞれのライセンスに従います。
+rootfs 内の `/usr/share/doc/<package>/copyright` と各配布元のライセンスを
+参照してください。HuaStation と rescue U-Boot も各配布元の条件に従います。
+
+明示的な許諾のないファイルについて、本ファイルから新たな使用・改変・
+再配布の許諾を推定することはできません。
