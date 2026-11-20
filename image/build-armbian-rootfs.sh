@@ -28,8 +28,19 @@ chroot "$root" apt-get install -y --no-install-recommends \
 depends=$(dpkg-deb -f "$deb" Depends)
 chroot "$root" apt-get satisfy -y --no-install-recommends "$depends"
 install -m 755 "$project/image/install-huastation.sh" "$root/usr/local/sbin/install-huastation"
+cat > "$root/usr/local/bin/systemctl" <<'EOF'
+#!/bin/sh
+n=$#
+for a in "$@"; do
+  [ "$a" = "--now" ] && continue
+  set -- "$@" "$a"
+done
+shift "$n"
+exec /usr/bin/systemctl "$@"
+EOF
+chmod 755 "$root/usr/local/bin/systemctl"
 chroot "$root" /usr/local/sbin/install-huastation
-rm "$root/usr/sbin/policy-rc.d"
+rm -f "$root/usr/local/bin/systemctl" "$root/usr/sbin/policy-rc.d"
 # Register and unpack the kernel; configure its hardware-facing postinst on Qua.
 install -d "$root/var/cache/apt/archives"
 install -m 644 "$deb" "$root/var/cache/apt/archives/$(basename "$deb")"
@@ -53,7 +64,7 @@ printf 'qua\n' > "$root/etc/hostname"
 printf '%s\n' 'PasswordAuthentication no' 'KbdInteractiveAuthentication no' \
   'PermitRootLogin prohibit-password' > "$root/etc/ssh/sshd_config.d/10-quastation.conf"
 printf '[Match]\nName=wlan0\n[Link]\nActivationPolicy=up\nRequiredForOnline=no\n[Network]\nDHCP=yes\n' > "$root/etc/systemd/network/20-wlan0.network"
-for service in systemd-networkd ssh wpa_supplicant@wlan0; do
+for service in systemd-networkd ssh wpa_supplicant@wlan0 huastation; do
   unit=${service/@wlan0/@}
   ln -sfn "/usr/lib/systemd/system/$unit.service" "$root/etc/systemd/system/multi-user.target.wants/$service.service"
 done
